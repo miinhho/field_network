@@ -34,6 +34,9 @@ class GraphAdjustmentResult:
     affinity_suggested_drop_edges: int
     tracked_affinity_pairs: int
     mean_plasticity_budget: float
+    supervisory_confusion_score: float
+    supervisory_forgetting_score: float
+    supervisory_policy_trace: dict[str, float]
 
 
 @dataclass(slots=True)
@@ -65,6 +68,19 @@ class AdjustmentPlannerConfig:
     very_noisy_threshold: float = 0.75
 
 
+@dataclass(slots=True)
+class PlasticityConfig:
+    eligibility_decay: float = 0.78
+    eta_up: float = 0.28
+    eta_down: float = 0.10
+    plasticity_use: float = 0.20
+    plasticity_recover: float = 0.07
+    theta_on: float = 0.62
+    theta_off: float = 0.34
+    hysteresis_dwell: int = 2
+    max_affinity_pairs: int = 24000
+
+
 class DynamicGraphAdjuster:
     """Adjusts graph connectivity based on flow impact and dynamic state signals."""
 
@@ -76,6 +92,7 @@ class DynamicGraphAdjuster:
         max_structural_edits: int = 2,
         apply_structural_edits: bool = True,
         planner_config: AdjustmentPlannerConfig | None = None,
+        plasticity_config: PlasticityConfig | None = None,
     ) -> None:
         self.learning_rate = learning_rate
         self.min_weight = min_weight
@@ -83,6 +100,7 @@ class DynamicGraphAdjuster:
         self.max_structural_edits = max(0, max_structural_edits)
         self.apply_structural_edits = apply_structural_edits
         self.planner_config = planner_config or AdjustmentPlannerConfig()
+        p = plasticity_config or PlasticityConfig()
         # Adaptive plasticity states (A/E/R).
         self._latent_affinity: dict[tuple[str, str], float] = {}
         self._eligibility: dict[tuple[str, str], float] = {}
@@ -90,15 +108,15 @@ class DynamicGraphAdjuster:
         self._pair_on_streak: dict[tuple[str, str], int] = {}
         self._pair_off_streak: dict[tuple[str, str], int] = {}
         self._prev_node_signal: dict[str, float] = {}
-        self._eligibility_decay = 0.78
-        self._eta_up = 0.28
-        self._eta_down = 0.10
-        self._plasticity_use = 0.20
-        self._plasticity_recover = 0.07
-        self._theta_on = 0.62
-        self._theta_off = 0.34
-        self._hysteresis_dwell = 2
-        self._max_affinity_pairs = 24000
+        self._eligibility_decay = max(0.1, min(0.99, float(p.eligibility_decay)))
+        self._eta_up = max(0.01, float(p.eta_up))
+        self._eta_down = max(0.01, float(p.eta_down))
+        self._plasticity_use = max(0.01, min(0.95, float(p.plasticity_use)))
+        self._plasticity_recover = max(0.01, min(0.95, float(p.plasticity_recover)))
+        self._theta_on = max(0.05, min(0.99, float(p.theta_on)))
+        self._theta_off = max(0.01, min(self._theta_on - 0.01, float(p.theta_off)))
+        self._hysteresis_dwell = max(1, int(p.hysteresis_dwell))
+        self._max_affinity_pairs = max(1000, int(p.max_affinity_pairs))
 
     def adjust(
         self,
@@ -107,6 +125,7 @@ class DynamicGraphAdjuster:
         state: dict[str, float],
         phase_context: dict[str, float] | None = None,
         control_context: dict[str, float] | None = None,
+        supervisory_context: dict[str, float] | None = None,
     ) -> GraphAdjustmentResult:
         adjusted = LayeredGraph(
             graph_id=f"{graph.graph_id}:adjusted",
@@ -122,6 +141,7 @@ class DynamicGraphAdjuster:
         hysteresis = self._phase_hysteresis(phase_context)
         density, impact_noise = self._graph_profile(graph, impact_by_actant)
         coupling = self._control_coupling_penalty(control_context)
+        supervisory_policy = self._supervisory_policy(supervisory_context)
         lr_scale = 1.0 - 0.6 * phase_risk
         planner_horizon = self._planner_horizon(density, impact_noise, phase_risk, coupling, slowing, hysteresis)
         self._recover_plasticity(graph.actants.keys())
@@ -129,6 +149,11 @@ class DynamicGraphAdjuster:
             graph=graph,
             impact_by_actant=impact_by_actant,
             phase_risk=phase_risk,
+            eta_up=float(supervisory_policy["eta_up"]),
+            eta_down=float(supervisory_policy["eta_down"]),
+            theta_on=float(supervisory_policy["theta_on"]),
+            theta_off=float(supervisory_policy["theta_off"]),
+            hysteresis_dwell=max(1, int(round(supervisory_policy["hysteresis_dwell"]))),
         )
         plan_scale, plan_budget = self._select_adjustment_plan(
             graph=graph,
@@ -206,11 +231,21 @@ class DynamicGraphAdjuster:
             density=density,
             slowing=slowing,
             requested_budget=plan_budget,
+            budget_multiplier=float(supervisory_policy["budget_multiplier"]),
+            new_edge_bias=float(supervisory_policy["new_edge_bias"]),
+            drop_edge_bias=float(supervisory_policy["drop_edge_bias"]),
+        )
+        requested_drop = max(
+            0,
+            min(
+                int(round(plan_budget * float(supervisory_policy["drop_share"]))),
+                len(suggested_drop),
+            ),
         )
         blocked_drop = self._estimate_blocked_drop_count(
             adjusted=adjusted,
             suggested_drop=suggested_drop,
-            requested_drop=max(0, min(plan_budget // 2 if plan_budget > 1 else 0, len(suggested_drop))),
+            requested_drop=requested_drop,
         )
         mean_shift = sum(shifts) / len(shifts) if shifts else 0.0
         mean_abs_shift = (sum(abs(v) for v in shifts) / len(shifts)) if shifts else 0.0
@@ -260,6 +295,19 @@ class DynamicGraphAdjuster:
             affinity_suggested_drop_edges=len(affinity_drop),
             tracked_affinity_pairs=len(self._latent_affinity),
             mean_plasticity_budget=round(self._mean_plasticity_budget(), 6),
+            supervisory_confusion_score=round(float(supervisory_policy["confusion_score"]), 6),
+            supervisory_forgetting_score=round(float(supervisory_policy["forgetting_score"]), 6),
+            supervisory_policy_trace={
+                "eta_up": round(float(supervisory_policy["eta_up"]), 6),
+                "eta_down": round(float(supervisory_policy["eta_down"]), 6),
+                "theta_on": round(float(supervisory_policy["theta_on"]), 6),
+                "theta_off": round(float(supervisory_policy["theta_off"]), 6),
+                "budget_multiplier": round(float(supervisory_policy["budget_multiplier"]), 6),
+                "new_edge_bias": round(float(supervisory_policy["new_edge_bias"]), 6),
+                "drop_edge_bias": round(float(supervisory_policy["drop_edge_bias"]), 6),
+                "drop_share": round(float(supervisory_policy["drop_share"]), 6),
+                "hysteresis_dwell": round(float(supervisory_policy["hysteresis_dwell"]), 6),
+            },
         )
 
     def _suggest_new_edges(
@@ -387,6 +435,41 @@ class DynamicGraphAdjuster:
         coherence = float(phase_context.get("coherence_break_score", 0.0))
         risk = 0.55 * critical + 0.3 * warning + 0.15 * coherence
         return max(0.0, min(1.0, risk))
+
+    def _supervisory_policy(self, supervisory_context: dict[str, float] | None) -> dict[str, float]:
+        confusion = 0.0
+        forgetting = 0.0
+        if supervisory_context:
+            confusion = max(0.0, min(1.0, float(supervisory_context.get("confusion_score", 0.0))))
+            forgetting = max(0.0, min(1.0, float(supervisory_context.get("forgetting_score", 0.0))))
+
+        eta_up = self._eta_up * (1.0 - 0.45 * confusion)
+        eta_down = self._eta_down * (1.0 + 0.6 * forgetting)
+        theta_on = min(0.95, self._theta_on + 0.2 * confusion)
+        theta_off = min(theta_on - 0.05, self._theta_off + 0.12 * confusion)
+        theta_off = max(0.05, theta_off)
+        budget_multiplier = (1.0 - 0.65 * confusion) * (1.0 + 0.35 * forgetting)
+        budget_multiplier = max(0.25, min(1.25, budget_multiplier))
+
+        # High confusion: reduce merge-prone link additions.
+        new_edge_bias = max(0.3, 1.0 - 0.6 * confusion)
+        # High forgetting: suppress aggressive pruning.
+        drop_edge_bias = max(0.2, 1.0 - 0.75 * forgetting)
+        drop_share = drop_edge_bias / (drop_edge_bias + new_edge_bias + 1e-9)
+        hysteresis_dwell = self._hysteresis_dwell + (1 if confusion > 0.65 else 0)
+        return {
+            "confusion_score": confusion,
+            "forgetting_score": forgetting,
+            "eta_up": max(0.01, eta_up),
+            "eta_down": max(0.01, eta_down),
+            "theta_on": theta_on,
+            "theta_off": theta_off,
+            "budget_multiplier": budget_multiplier,
+            "new_edge_bias": new_edge_bias,
+            "drop_edge_bias": drop_edge_bias,
+            "drop_share": max(0.0, min(1.0, drop_share)),
+            "hysteresis_dwell": float(max(1, hysteresis_dwell)),
+        }
 
     def _adjustment_objective(
         self,
@@ -662,6 +745,9 @@ class DynamicGraphAdjuster:
         density: float,
         slowing: float,
         requested_budget: int,
+        budget_multiplier: float = 1.0,
+        new_edge_bias: float = 1.0,
+        drop_edge_bias: float = 1.0,
     ) -> tuple[int, int]:
         if not self.apply_structural_edits or self.max_structural_edits <= 0:
             return 0, 0
@@ -670,12 +756,16 @@ class DynamicGraphAdjuster:
             * (0.8 + 0.4 * max(0.0, min(1.0, density)))
             * (1.0 - 0.5 * max(0.0, min(1.0, slowing)))
         )
+        budget_scale *= max(0.25, min(1.25, float(budget_multiplier)))
         allowed = max(0, int(round(self.max_structural_edits * budget_scale)))
         budget = max(0, min(int(requested_budget), allowed))
         if budget <= 0:
             return 0, 0
 
-        drop_budget = min(len(suggested_drop), budget // 2 if budget > 1 else 0)
+        new_pref = max(0.1, float(new_edge_bias))
+        drop_pref = max(0.1, float(drop_edge_bias))
+        drop_share = drop_pref / (new_pref + drop_pref)
+        drop_budget = min(len(suggested_drop), int(round(budget * drop_share)))
         new_budget = min(len(suggested_new), budget - drop_budget)
 
         dropped = 0
@@ -834,6 +924,11 @@ class DynamicGraphAdjuster:
         graph: LayeredGraph,
         impact_by_actant: dict[str, float],
         phase_risk: float,
+        eta_up: float,
+        eta_down: float,
+        theta_on: float,
+        theta_off: float,
+        hysteresis_dwell: int,
     ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
         pairs = self._candidate_pairs(graph, impact_by_actant)
         if not pairs:
@@ -863,8 +958,8 @@ class DynamicGraphAdjuster:
             a_prev = float(self._latent_affinity.get(pair, 0.0))
             ra = float(self._plasticity_budget.get(a, 1.0))
             rb = float(self._plasticity_budget.get(b, 1.0))
-            up = self._eta_up * max(0.0, e_cur) * ra * rb * (1.0 - 0.5 * phase_risk)
-            down = self._eta_down * max(0.0, -e_cur)
+            up = eta_up * max(0.0, e_cur) * ra * rb * (1.0 - 0.5 * phase_risk)
+            down = eta_down * max(0.0, -e_cur)
             a_cur = max(0.0, min(1.0, a_prev + up - down))
             self._latent_affinity[pair] = a_cur
 
@@ -876,10 +971,10 @@ class DynamicGraphAdjuster:
 
             on = self._pair_on_streak.get(pair, 0)
             off = self._pair_off_streak.get(pair, 0)
-            if a_cur >= self._theta_on:
+            if a_cur >= theta_on:
                 on += 1
                 off = 0
-            elif a_cur <= self._theta_off:
+            elif a_cur <= theta_off:
                 off += 1
                 on = 0
             else:
@@ -888,9 +983,9 @@ class DynamicGraphAdjuster:
             self._pair_on_streak[pair] = on
             self._pair_off_streak[pair] = off
 
-            if pair not in existing and on >= self._hysteresis_dwell:
+            if pair not in existing and on >= hysteresis_dwell:
                 add_rank.append((a_cur, pair))
-            if pair in existing and off >= self._hysteresis_dwell:
+            if pair in existing and off >= hysteresis_dwell:
                 drop_rank.append((1.0 - a_cur, pair))
 
         for n, used in consume_by_node.items():

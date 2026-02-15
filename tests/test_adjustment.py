@@ -221,6 +221,62 @@ class AdjustmentTests(unittest.TestCase):
         self.assertLessEqual(out.mean_plasticity_budget, 1.0)
         self.assertGreaterEqual(out.tracked_affinity_pairs, 1)
 
+    def test_supervisory_confusion_reduces_merge_prone_rewiring(self) -> None:
+        adjuster = DynamicGraphAdjuster(max_structural_edits=2, apply_structural_edits=False)
+        g = self._dense_graph()
+        impacts = {"a": 1.0, "b": 0.9, "c": 0.85, "d": 0.7, "e": 0.65}
+        state = {"transition_speed": 0.6, "temporal_regularity": 0.3, "schedule_density": 4.0}
+
+        base = adjuster.adjust(g, impact_by_actant=impacts, state=state)
+        confused = adjuster.adjust(
+            g,
+            impact_by_actant=impacts,
+            state=state,
+            supervisory_context={"confusion_score": 0.9, "forgetting_score": 0.1},
+        )
+
+        self.assertLessEqual(
+            confused.supervisory_policy_trace["new_edge_bias"],
+            base.supervisory_policy_trace["new_edge_bias"],
+        )
+        self.assertGreaterEqual(
+            confused.supervisory_policy_trace["theta_on"],
+            base.supervisory_policy_trace["theta_on"],
+        )
+        self.assertLessEqual(
+            confused.supervisory_policy_trace["eta_up"],
+            base.supervisory_policy_trace["eta_up"],
+        )
+
+    def test_supervisory_forgetting_reduces_aggressive_pruning(self) -> None:
+        adjuster = DynamicGraphAdjuster(max_structural_edits=2, apply_structural_edits=True)
+        g = self._dense_graph()
+        impacts = {"a": 1.0, "b": 0.9, "c": 0.8, "d": 0.7, "e": 0.6}
+        state = {"transition_speed": 0.55, "temporal_regularity": 0.35, "schedule_density": 3.8}
+
+        base = adjuster.adjust(
+            g,
+            impact_by_actant=impacts,
+            state=state,
+            supervisory_context={"confusion_score": 0.1, "forgetting_score": 0.1},
+        )
+        protected = adjuster.adjust(
+            g,
+            impact_by_actant=impacts,
+            state=state,
+            supervisory_context={"confusion_score": 0.1, "forgetting_score": 0.95},
+        )
+
+        self.assertLessEqual(
+            protected.supervisory_policy_trace["drop_edge_bias"],
+            base.supervisory_policy_trace["drop_edge_bias"],
+        )
+        self.assertGreaterEqual(
+            protected.supervisory_policy_trace["eta_down"],
+            base.supervisory_policy_trace["eta_down"],
+        )
+        self.assertLessEqual(protected.applied_drop_edges, base.applied_drop_edges)
+
 
 if __name__ == "__main__":
     unittest.main()

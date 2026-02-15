@@ -14,6 +14,8 @@ from .flow import (
     PhaseTransitionAnalyzer,
     FlowSimulator,
     StateVectorBuilder,
+    SupervisoryControlState,
+    SupervisoryMetricsAnalyzer,
     TopologicalFlowController,
 )
 from .models import Answer, LayeredGraph, Perturbation, Query
@@ -73,6 +75,8 @@ class _CoreCycleSummary:
     mean_cluster_objective: float
     mean_cross_scale_consistency: float
     mean_micro_refinement_gain: float
+    mean_supervisory_confusion: float
+    mean_supervisory_forgetting: float
 
 
 class FlowGraphRAG:
@@ -93,6 +97,7 @@ class FlowGraphRAG:
         self.adjuster = DynamicGraphAdjuster(planner_config=adjustment_planner_config)
         self.controller = TopologicalFlowController()
         self.cluster_controller = ClusterFlowController()
+        self.supervisory = SupervisoryMetricsAnalyzer()
 
     def run(self, graph: LayeredGraph, query: Query, perturbation: Perturbation | None = None) -> Answer:
         query_type = self.router.classify(query)
@@ -212,6 +217,8 @@ class FlowGraphRAG:
             "coherence_break_score": float(cycle.coherence_break_score),
             "critical_slowing_score": float(cycle.critical_slowing_score),
             "hysteresis_proxy_score": float(cycle.hysteresis_proxy_score),
+            "supervisory_confusion_score": float(cycle.mean_supervisory_confusion),
+            "supervisory_forgetting_score": float(cycle.mean_supervisory_forgetting),
         }
         evidence_ids = [f"perturbation:{p.perturbation_id}"]
         return compose_answer("predict", claims, evidence_ids, metrics, uncertainty=0.35)
@@ -339,6 +346,10 @@ class FlowGraphRAG:
             "intervention_critical_slowing_score": float(intervention_cycle.critical_slowing_score),
             "baseline_hysteresis_proxy_score": float(baseline_cycle.hysteresis_proxy_score),
             "intervention_hysteresis_proxy_score": float(intervention_cycle.hysteresis_proxy_score),
+            "baseline_supervisory_confusion_score": float(baseline_cycle.mean_supervisory_confusion),
+            "intervention_supervisory_confusion_score": float(intervention_cycle.mean_supervisory_confusion),
+            "baseline_supervisory_forgetting_score": float(baseline_cycle.mean_supervisory_forgetting),
+            "intervention_supervisory_forgetting_score": float(intervention_cycle.mean_supervisory_forgetting),
         }
         evidence_ids = [f"perturbation:{p.perturbation_id}"]
         return compose_answer("intervene", claims, evidence_ids, metrics, uncertainty=0.4)
@@ -439,10 +450,13 @@ class FlowGraphRAG:
         cluster_objectives: list[float] = []
         cross_scale_consistency: list[float] = []
         micro_refinement_gain: list[float] = []
+        supervisory_confusions: list[float] = []
+        supervisory_forgettings: list[float] = []
         converged = False
         stable_streak = 0
         last_impact: dict[str, float] = {}
         prev_phase_context: dict[str, float] = {}
+        supervisory_state: SupervisoryControlState | None = None
 
         for _ in range(max(1, cycles)):
             propagation = self.simulator.propagate(current_graph, perturbation)
@@ -483,6 +497,11 @@ class FlowGraphRAG:
                 "critical_slowing_score": phase_context.critical_slowing_score,
                 "hysteresis_proxy_score": phase_context.hysteresis_proxy_score,
             }
+            supervisory_metrics, supervisory_state = self.supervisory.analyze(
+                current_graph,
+                control.controlled_impact,
+                state=supervisory_state,
+            )
             adjustment = self.adjuster.adjust(
                 current_graph,
                 control.controlled_impact,
@@ -492,6 +511,10 @@ class FlowGraphRAG:
                     "residual_ratio": control.residual_ratio,
                     "divergence_norm_after": control.divergence_norm_after,
                     "control_energy": control.control_energy,
+                },
+                supervisory_context={
+                    "confusion_score": supervisory_metrics.confusion_score,
+                    "forgetting_score": supervisory_metrics.forgetting_score,
                 },
             )
             prev_phase_context = phase_context_map
@@ -529,6 +552,8 @@ class FlowGraphRAG:
             cluster_objectives.append(cluster_plan.cluster_objective)
             cross_scale_consistency.append(cluster_plan.cross_scale_consistency)
             micro_refinement_gain.append(max(0.0, cluster_plan.cluster_objective - control.objective_score))
+            supervisory_confusions.append(adjustment.supervisory_confusion_score)
+            supervisory_forgettings.append(adjustment.supervisory_forgetting_score)
             current_graph = adjustment.adjusted_graph
 
             if len(distance_series) >= 2:
@@ -590,6 +615,12 @@ class FlowGraphRAG:
         )
         mean_refinement_gain = (
             sum(micro_refinement_gain) / len(micro_refinement_gain) if micro_refinement_gain else 0.0
+        )
+        mean_supervisory_confusion = (
+            sum(supervisory_confusions) / len(supervisory_confusions) if supervisory_confusions else 0.0
+        )
+        mean_supervisory_forgetting = (
+            sum(supervisory_forgettings) / len(supervisory_forgettings) if supervisory_forgettings else 0.0
         )
         phase = self.phase_analyzer.analyze(
             trajectory=trajectory,
@@ -655,6 +686,8 @@ class FlowGraphRAG:
             mean_cluster_objective=mean_cluster_obj,
             mean_cross_scale_consistency=mean_consistency,
             mean_micro_refinement_gain=mean_refinement_gain,
+            mean_supervisory_confusion=mean_supervisory_confusion,
+            mean_supervisory_forgetting=mean_supervisory_forgetting,
         )
 
     def _oscillation_index(self, values: list[float]) -> float:

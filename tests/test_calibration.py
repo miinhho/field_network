@@ -7,7 +7,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ffrag.calibration import candidate_configs, run_calibration
+from ffrag.calibration import candidate_configs, candidate_profiles, run_calibration, run_calibration_with_summary
 
 
 class CalibrationTests(unittest.TestCase):
@@ -23,6 +23,25 @@ class CalibrationTests(unittest.TestCase):
         for row in rows:
             self.assertGreaterEqual(row.avg_coupling_penalty, 0.0)
             self.assertLessEqual(row.avg_coupling_penalty, 1.0)
+            self.assertGreaterEqual(row.avg_supervisory_confusion, 0.0)
+            self.assertLessEqual(row.avg_supervisory_confusion, 1.0)
+            self.assertGreaterEqual(row.avg_supervisory_forgetting, 0.0)
+            self.assertLessEqual(row.avg_supervisory_forgetting, 1.0)
+
+    def test_candidate_profiles_modes(self) -> None:
+        self.assertGreaterEqual(len(candidate_profiles("default")), 1)
+        self.assertGreaterEqual(len(candidate_profiles("plasticity")), 2)
+        self.assertGreaterEqual(len(candidate_profiles("mixed")), len(candidate_profiles("default")))
+
+    def test_run_calibration_with_summary_returns_valid_range(self) -> None:
+        rows, summary = run_calibration_with_summary(num_scenarios=4, seed=5, batch="mixed", top_fraction=0.5)
+        self.assertGreaterEqual(len(rows), 1)
+        self.assertGreaterEqual(summary.candidate_count, 1)
+        self.assertGreaterEqual(summary.top_count, 1)
+        self.assertLessEqual(summary.eta_up_min, summary.eta_up_max)
+        self.assertLessEqual(summary.theta_off_min, summary.theta_off_max)
+        self.assertLessEqual(summary.theta_on_min, summary.theta_on_max)
+        self.assertLessEqual(summary.hysteresis_dwell_min, summary.hysteresis_dwell_max)
 
 
 if __name__ == "__main__":

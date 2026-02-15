@@ -112,6 +112,7 @@ This is why we add supervisory/homeostatic constraints rather than pure Hebbian-
 - Keep core ontology minimal and domain-neutral
 - Push domain specifics to adapter and feature plugin interfaces
 - Support both event streams and batch graph snapshots
+- Enforce adapter output contract with built-in validation and mapping reports before core execution
 
 ## Tech Direction (Current)
 
@@ -146,6 +147,14 @@ This is why we add supervisory/homeostatic constraints rather than pure Hebbian-
 2. Physics-capable simulator with HTML and WebGL replay outputs
 3. Baseline adaptive plasticity in adjuster (`A_ij`, `E_ij`, `R_i`) with hysteresis suggestion path
 4. Structural safety constraints for drop edits (degree/connectivity preservation)
+5. Supervisory metrics/state module added (confusion proxy: cluster margin + mixing entropy, forgetting proxy: retention + connectivity loss)
+6. Supervisory policy integration in adjuster and pipeline (runtime modulation of `eta_up/down`, `theta_on/off`, edit budget bias, and policy trace observability)
+7. Long-run guardrail integration tests added (collapse-prone / fragmentation-prone / noisy repeated-perturbation scenarios with bounded churn and diversity/retention floor checks)
+8. Calibration runner extension added for plasticity/hysteresis tuning: mixed candidate batch (`planner x plasticity`), supervisory-aware scoring, and compact recommended coefficient-range artifact output
+9. Initial adapter SDK structure implemented: `BaseAdapter` + registry + contract validator + mapping report path
+10. Domain adapters on the SDK:
+  - core package keeps generic rule-mapping adapter (`GenericMappingAdapter`, `MappingSpec`) for user-defined relations
+  - concrete domain adapters are intended to live outside core (example moved under `examples/adapters/`)
 
 ### Still Missing for Target Architecture
 
@@ -153,13 +162,14 @@ This is why we add supervisory/homeostatic constraints rather than pure Hebbian-
 2. Adaptive plasticity parameter calibration (`eta_up/down`, `theta_on/off`, dwell)
 3. Candidate policy upgrade for large graphs (ANN or hybrid retrieval)
 4. Long-horizon collapse/fragmentation validation protocol
+5. Production-grade adapter coverage beyond initial adapters (schema hardening, richer domain mappings, ingestion contracts)
 
 ### Next Session Checklist
 
-- [ ] Add supervisory metrics module (cluster margin, mixing entropy proxy, retention loss)
-- [ ] Wire supervisory policy into adjuster parameter modulation
-- [ ] Add long-run integration test for anti-collapse/anti-fragmentation guardrails
-- [ ] Add calibration CLI scenario set for plasticity/hysteresis parameters
+- [x] Add supervisory metrics module (cluster margin, mixing entropy proxy, retention loss)
+- [x] Wire supervisory policy into adjuster parameter modulation
+- [x] Add long-run integration test for anti-collapse/anti-fragmentation guardrails
+- [x] Add calibration CLI scenario set for plasticity/hysteresis parameters
 - [ ] Promote new metrics into pipeline/reporting outputs
 
 ## Change Log
@@ -195,3 +205,9 @@ This is why we add supervisory/homeostatic constraints rather than pure Hebbian-
 - 2026-02-15: Added physically inspired node-motion mode (`position_model=physics`) using mass/velocity/damping/spring/field-force integration, and added separate WebGL replay renderer for large-graph visualization.
 - 2026-02-15: Revised architecture with adaptive-network evidence alignment: added planned latent-affinity/plasticity/hysteresis loop and a supervisory adaptive controller for confusion/forgetting stabilization.
 - 2026-02-15: Implemented first adaptive-plasticity pass in `DynamicGraphAdjuster`: persistent latent affinity/eligibility/plasticity states with hysteresis-based emergent-link suggestions merged into structural edit candidates.
+- 2026-02-15: Implemented `flow.supervisory` metrics/state module (`SupervisoryMetricsAnalyzer`, `SupervisoryControlState`) with deterministic tests for bounds and monotonic sanity checks.
+- 2026-02-15: Wired supervisory policy into `DynamicGraphAdjuster` and `FlowGraphRAG` core loop; supervisory risk now modulates plasticity gains/thresholds/edit budget and is exposed via policy trace + pipeline metrics.
+- 2026-02-15: Added long-run guardrail integration tests covering collapse-prone, fragmentation-prone, and noisy repeated-perturbation regimes with bounded edge churn and retention/diversity floor assertions.
+- 2026-02-15: Extended calibration runner/CLI with plasticity-hysteresis profile batches, supervisory-aware calibration metrics, and summary artifact output for recommended coefficient windows.
+- 2026-02-15: Reworked adapters into SDK-style package (`BaseAdapter`, registry, contract validator) to separate domain semantics from core engine.
+- 2026-02-15: Kept core adapter layer SDK-focused; moved concrete calendar adapter out of core into `examples/` and retained generic mapping adapter in core.

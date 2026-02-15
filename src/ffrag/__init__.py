@@ -13,10 +13,23 @@ from .models import (
 from .pipeline import FlowGraphRAG
 from .calibration import CalibrationRow, run_calibration, candidate_configs
 from .dynamic_simulator import DynamicGraphSimulator, SimulationFrame, SimulationTrace, EdgeDelta
+from .adapters import (
+    AdapterBuildResult,
+    BaseAdapter,
+    GenericMappingAdapter,
+    GraphContractValidator,
+    GraphValidationIssue,
+    GraphValidationResult,
+    MappingSpec,
+    get_adapter,
+    list_adapters,
+    register_adapter,
+)
 from .flow import (
     ClusterFlowController,
     ClusterPlanResult,
     AdjustmentPlannerConfig,
+    PlasticityConfig,
     DynamicGraphAdjuster,
     FlowAnalyzerConfig,
     FlowFieldDynamics,
@@ -26,6 +39,9 @@ from .flow import (
     PhaseTransitionResult,
     SimplicialTopologyModel,
     SimplicialTopologyResult,
+    SupervisoryMetrics,
+    SupervisoryControlState,
+    SupervisoryMetricsAnalyzer,
     TopologicalControlResult,
     TopologicalFlowController,
 )
@@ -47,10 +63,21 @@ __all__ = [
     "SimulationFrame",
     "SimulationTrace",
     "EdgeDelta",
+    "BaseAdapter",
+    "AdapterBuildResult",
+    "MappingSpec",
+    "GenericMappingAdapter",
+    "GraphContractValidator",
+    "GraphValidationIssue",
+    "GraphValidationResult",
+    "register_adapter",
+    "get_adapter",
+    "list_adapters",
     "FlowFieldDynamics",
     "FlowDynamicsAnalyzer",
     "FlowAnalyzerConfig",
     "AdjustmentPlannerConfig",
+    "PlasticityConfig",
     "DynamicGraphAdjuster",
     "GraphAdjustmentResult",
     "PhaseTransitionAnalyzer",
@@ -61,4 +88,7 @@ __all__ = [
     "ClusterPlanResult",
     "SimplicialTopologyModel",
     "SimplicialTopologyResult",
+    "SupervisoryMetrics",
+    "SupervisoryControlState",
+    "SupervisoryMetricsAnalyzer",
 ]

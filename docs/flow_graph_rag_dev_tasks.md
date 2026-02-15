@@ -92,6 +92,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - adapter B (non-calendar domain: logs/supply-chain/community)
 - Acceptance:
   - same query API runs on both domains
+  - adapters pass canonical contract validation and emit mapping report
 
 ## P2: Advanced Capabilities (Post-MVP)
 
@@ -199,6 +200,13 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Structural safety constraints added for edit execution (bridge/degree protection on edge drops)
   - Completed planner signal path for phase-rigor metrics (`critical_slowing`, `hysteresis_proxy`)
   - Baseline adaptive plasticity state loop in adjuster (`A_ij`, `E_ij`, `R_i`) with hysteresis-based emergent suggestion path
+  - Supervisory metrics/state module (`SupervisoryMetricsAnalyzer`, `SupervisoryControlState`) with confusion/forgetting proxies and deterministic unit tests
+  - Supervisory policy hooks in adjuster (`eta_up/down`, `theta_on/off`, edit-budget/new-drop bias modulation) with policy trace observability
+  - Pipeline integration of supervisory signals and metrics output (`supervisory_confusion_score`, `supervisory_forgetting_score`)
+  - Long-run repeated-perturbation integration tests with guardrail thresholds (`tests/test_longrun_guardrails.py`)
+  - Calibration runner extension with plasticity/hysteresis profile candidates and summary-range artifact output (`run_calibration_with_summary`, CLI `--batch/--summary-out`)
+  - Adapter SDK foundation (`BaseAdapter`, adapter registry, canonical contract validator) and integration tests
+  - Calendar adapter + generic rule-mapping adapter running on same query API (`predict/intervene`)
   - Core completion/readiness checklist and automated readiness tests added
   - Analyzer configuration object for domain tuning (`FlowAnalyzerConfig`: thresholds, weights, lag)
   - Unit tests for dynamics and flow analysis
@@ -217,7 +225,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 
 ## Next Session Checklist (Action Order)
 
-1. Implement supervisory metrics and state
+1. Implement supervisory metrics and state (Completed 2026-02-15)
 - Deliverables:
   - confusion proxy: cluster margin + mixing entropy
   - forgetting proxy: important-node retention/connectivity loss
@@ -225,7 +233,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - Acceptance:
   - deterministic unit tests for metric bounds and monotonic sanity checks
 
-2. Wire supervisory policy into adjuster
+2. Wire supervisory policy into adjuster (Completed 2026-02-15)
 - Deliverables:
   - modulation hooks for `eta_up/down`, `theta_on/off`, and edit budget bias
   - policy trace outputs for observability
@@ -233,19 +241,49 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - high-confusion scenario reduces merge-prone rewiring
   - high-forgetting scenario reduces aggressive pruning
 
-3. Long-run integration tests for phase outcomes
+3. Long-run integration tests for phase outcomes (Completed 2026-02-15)
 - Deliverables:
   - repeated-perturbation scenarios (collapse-prone, fragmentation-prone, noisy)
   - guardrail pass/fail thresholds
 - Acceptance:
   - bounded edge churn and diversity/retention floors maintained
 
-4. Calibration runner extension
+4. Calibration runner extension (Completed 2026-02-15)
 - Deliverables:
   - scenario batch in calibration CLI for plasticity/hysteresis tuning
   - compact summary artifact with recommended coefficient ranges
 - Acceptance:
   - reproducible run and stable recommended parameter window
+
+5. Promote new metrics into reporting outputs (Next)
+- Deliverables:
+  - extend calibration report columns with long-run guardrail summary metrics
+  - add concise markdown/CSV reporting template for session handoff
+- Acceptance:
+  - report includes candidate ranking + coefficient window + guardrail trend snapshots
+
+6. Adapter hardening and second production domain adapter (Next)
+- Deliverables:
+  - stricter contract rules (provenance/confidence mandatory path)
+  - one production-grade external domain adapter (supply-chain/community chosen by user)
+  - adapter CLI/test template for external contributors
+- Acceptance:
+  - adapter builds must pass validation gate
+  - same `FlowGraphRAG` API regression suite passes on both domains
+
+## Stability Exit Criteria (Gate to Multi-Domain Adapter Work)
+
+Declare stability phase complete when all conditions are satisfied:
+
+1. Full automated test suite is green.
+2. Core readiness CLI passes with zero failures/errors.
+3. Long-run guardrail integration tests pass (collapse-prone, fragmentation-prone, noisy).
+4. Calibration CLI runs reproducibly and emits summary artifact with recommended coefficient ranges.
+5. Supervisory metrics are wired into pipeline outputs and adjustment policy trace is observable.
+
+Status (2026-02-15):
+- Criteria 1-5 satisfied.
+- Multi-domain adapter implementation is unblocked and started.
 
 ## Edge-Case Review Checklist
 
@@ -303,3 +341,10 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added physics-based position update path (`--position-model physics`) and split high-scale renderer with `--format webgl` output for large graph replay.
 - 2026-02-15: Added design-aligned P2 tasks for adaptive plasticity (`A/E/R`) and supervisory adaptive control (confusion/forgetting guardrails with hysteresis rewiring lifecycle).
 - 2026-02-15: Implemented baseline `A/E/R` loop in adjuster with candidate filtering, hysteresis streak gating, and new observability metrics (`affinity_suggested_*`, tracked pairs, mean plasticity budget).
+- 2026-02-15: Implemented supervisory metrics/state module (`flow.supervisory`) and added deterministic tests for bounds/monotonicity (`tests/test_supervisory.py`).
+- 2026-02-15: Wired supervisory policy into adjuster/pipeline with runtime modulation + trace metrics; added acceptance tests for confusion-driven merge suppression and forgetting-driven pruning suppression.
+- 2026-02-15: Added long-run integration tests (`tests/test_longrun_guardrails.py`) for collapse-prone, fragmentation-prone, and noisy repeated perturbations with guardrail thresholds.
+- 2026-02-15: Extended calibration engine/CLI for plasticity-hysteresis tuning with mixed profile batches and summary coefficient-range artifact output.
+- 2026-02-15: Added explicit stability exit gate and marked gate conditions as satisfied; proceeded to multi-domain adapter implementation.
+- 2026-02-15: Replaced ad-hoc adapter approach with SDK-style adapter package (base/registry/validation) and added generic rule-mapping adapter for user-defined domain schemas.
+- 2026-02-15: Removed concrete calendar adapter from core package and kept domain-specific adapter implementations in examples/external path to preserve SDK-only core boundaries.

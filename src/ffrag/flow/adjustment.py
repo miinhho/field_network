@@ -30,6 +30,10 @@ class GraphAdjustmentResult:
     blocked_drop_edges: int
     suggested_new_edges: list[tuple[str, str]]
     suggested_drop_edges: list[tuple[str, str]]
+    affinity_suggested_new_edges: int
+    affinity_suggested_drop_edges: int
+    tracked_affinity_pairs: int
+    mean_plasticity_budget: float
 
 
 @dataclass(slots=True)
@@ -79,6 +83,22 @@ class DynamicGraphAdjuster:
         self.max_structural_edits = max(0, max_structural_edits)
         self.apply_structural_edits = apply_structural_edits
         self.planner_config = planner_config or AdjustmentPlannerConfig()
+        # Adaptive plasticity states (A/E/R).
+        self._latent_affinity: dict[tuple[str, str], float] = {}
+        self._eligibility: dict[tuple[str, str], float] = {}
+        self._plasticity_budget: dict[str, float] = {}
+        self._pair_on_streak: dict[tuple[str, str], int] = {}
+        self._pair_off_streak: dict[tuple[str, str], int] = {}
+        self._prev_node_signal: dict[str, float] = {}
+        self._eligibility_decay = 0.78
+        self._eta_up = 0.28
+        self._eta_down = 0.10
+        self._plasticity_use = 0.20
+        self._plasticity_recover = 0.07
+        self._theta_on = 0.62
+        self._theta_off = 0.34
+        self._hysteresis_dwell = 2
+        self._max_affinity_pairs = 24000
 
     def adjust(
         self,
@@ -104,6 +124,12 @@ class DynamicGraphAdjuster:
         coupling = self._control_coupling_penalty(control_context)
         lr_scale = 1.0 - 0.6 * phase_risk
         planner_horizon = self._planner_horizon(density, impact_noise, phase_risk, coupling, slowing, hysteresis)
+        self._recover_plasticity(graph.actants.keys())
+        affinity_new, affinity_drop = self._update_plasticity_and_affinity(
+            graph=graph,
+            impact_by_actant=impact_by_actant,
+            phase_risk=phase_risk,
+        )
         plan_scale, plan_budget = self._select_adjustment_plan(
             graph=graph,
             impact_by_actant=impact_by_actant,
@@ -170,6 +196,8 @@ class DynamicGraphAdjuster:
             phase_risk=phase_risk,
             density=density,
         )
+        suggested_new = self._merge_pairs(suggested_new, affinity_new, limit=6)
+        suggested_drop = self._merge_pairs(suggested_drop, affinity_drop, limit=6)
         applied_new, applied_drop = self._apply_structural_edits(
             adjusted=adjusted,
             suggested_new=suggested_new,
@@ -228,6 +256,10 @@ class DynamicGraphAdjuster:
             blocked_drop_edges=blocked_drop,
             suggested_new_edges=suggested_new,
             suggested_drop_edges=suggested_drop,
+            affinity_suggested_new_edges=len(affinity_new),
+            affinity_suggested_drop_edges=len(affinity_drop),
+            tracked_affinity_pairs=len(self._latent_affinity),
+            mean_plasticity_budget=round(self._mean_plasticity_budget(), 6),
         )
 
     def _suggest_new_edges(
@@ -784,3 +816,144 @@ class DynamicGraphAdjuster:
 
     def _clip(self, value: float) -> float:
         return max(self.min_weight, min(self.max_weight, value))
+
+    def _recover_plasticity(self, nodes: Iterable[str]) -> None:
+        for n in nodes:
+            cur = float(self._plasticity_budget.get(n, 1.0))
+            cur += self._plasticity_recover * (1.0 - cur)
+            self._plasticity_budget[n] = max(0.0, min(1.0, cur))
+
+    def _mean_plasticity_budget(self) -> float:
+        if not self._plasticity_budget:
+            return 1.0
+        vals = [float(v) for v in self._plasticity_budget.values()]
+        return sum(vals) / len(vals)
+
+    def _update_plasticity_and_affinity(
+        self,
+        graph: LayeredGraph,
+        impact_by_actant: dict[str, float],
+        phase_risk: float,
+    ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+        pairs = self._candidate_pairs(graph, impact_by_actant)
+        if not pairs:
+            self._prev_node_signal = dict(impact_by_actant)
+            return [], []
+        existing = {tuple(sorted((e.source_id, e.target_id))) for e in graph.interactions}
+        max_imp = max((abs(float(v)) for v in impact_by_actant.values()), default=1.0) or 1.0
+        consume_by_node: dict[str, float] = {}
+        add_rank: list[tuple[float, tuple[str, str]]] = []
+        drop_rank: list[tuple[float, tuple[str, str]]] = []
+
+        for pair in pairs:
+            a, b = pair
+            ia = float(impact_by_actant.get(a, 0.0)) / max_imp
+            ib = float(impact_by_actant.get(b, 0.0)) / max_imp
+            prev_a = float(self._prev_node_signal.get(a, 0.0)) / max_imp
+            prev_b = float(self._prev_node_signal.get(b, 0.0)) / max_imp
+
+            co = max(-1.0, min(1.0, ia * ib))
+            stdp = max(-1.0, min(1.0, prev_a * ib - prev_b * ia))
+            drive = 0.7 * co + 0.3 * stdp
+
+            e_prev = float(self._eligibility.get(pair, 0.0))
+            e_cur = self._eligibility_decay * e_prev + (1.0 - self._eligibility_decay) * drive
+            self._eligibility[pair] = max(-1.0, min(1.0, e_cur))
+
+            a_prev = float(self._latent_affinity.get(pair, 0.0))
+            ra = float(self._plasticity_budget.get(a, 1.0))
+            rb = float(self._plasticity_budget.get(b, 1.0))
+            up = self._eta_up * max(0.0, e_cur) * ra * rb * (1.0 - 0.5 * phase_risk)
+            down = self._eta_down * max(0.0, -e_cur)
+            a_cur = max(0.0, min(1.0, a_prev + up - down))
+            self._latent_affinity[pair] = a_cur
+
+            delta_pos = max(0.0, a_cur - a_prev)
+            if delta_pos > 0.0:
+                use = self._plasticity_use * delta_pos
+                consume_by_node[a] = consume_by_node.get(a, 0.0) + use
+                consume_by_node[b] = consume_by_node.get(b, 0.0) + use
+
+            on = self._pair_on_streak.get(pair, 0)
+            off = self._pair_off_streak.get(pair, 0)
+            if a_cur >= self._theta_on:
+                on += 1
+                off = 0
+            elif a_cur <= self._theta_off:
+                off += 1
+                on = 0
+            else:
+                on = 0
+                off = 0
+            self._pair_on_streak[pair] = on
+            self._pair_off_streak[pair] = off
+
+            if pair not in existing and on >= self._hysteresis_dwell:
+                add_rank.append((a_cur, pair))
+            if pair in existing and off >= self._hysteresis_dwell:
+                drop_rank.append((1.0 - a_cur, pair))
+
+        for n, used in consume_by_node.items():
+            cur = float(self._plasticity_budget.get(n, 1.0))
+            self._plasticity_budget[n] = max(0.0, min(1.0, cur - used))
+
+        self._trim_affinity_states()
+        self._prev_node_signal = dict(impact_by_actant)
+        add_rank.sort(key=lambda x: x[0], reverse=True)
+        drop_rank.sort(key=lambda x: x[0], reverse=True)
+        return [pair for _, pair in add_rank[:3]], [pair for _, pair in drop_rank[:3]]
+
+    def _candidate_pairs(
+        self,
+        graph: LayeredGraph,
+        impact_by_actant: dict[str, float],
+    ) -> list[tuple[str, str]]:
+        nodes = list(graph.actants.keys())
+        if len(nodes) < 2:
+            return []
+        ranked = [n for n, _ in sorted(impact_by_actant.items(), key=lambda x: abs(x[1]), reverse=True)]
+        if not ranked:
+            ranked = nodes
+        anchors = ranked[: min(28, len(ranked))]
+        pair_set: set[tuple[str, str]] = set()
+
+        for a, b in combinations(anchors, 2):
+            if a == b:
+                continue
+            pair_set.add(tuple(sorted((a, b))))
+
+        for e in graph.interactions:
+            pair_set.add(tuple(sorted((e.source_id, e.target_id))))
+
+        if len(pair_set) > 1200:
+            pair_list = sorted(pair_set)
+            return pair_list[:1200]
+        return list(pair_set)
+
+    def _merge_pairs(
+        self,
+        base: list[tuple[str, str]],
+        extra: list[tuple[str, str]],
+        limit: int,
+    ) -> list[tuple[str, str]]:
+        out: list[tuple[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for pair in base + extra:
+            key = tuple(sorted(pair))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(key)
+            if len(out) >= limit:
+                break
+        return out
+
+    def _trim_affinity_states(self) -> None:
+        if len(self._latent_affinity) <= self._max_affinity_pairs:
+            return
+        keep = sorted(self._latent_affinity.items(), key=lambda kv: kv[1], reverse=True)[: self._max_affinity_pairs]
+        keep_keys = {k for k, _ in keep}
+        self._latent_affinity = {k: v for k, v in keep}
+        self._eligibility = {k: v for k, v in self._eligibility.items() if k in keep_keys}
+        self._pair_on_streak = {k: v for k, v in self._pair_on_streak.items() if k in keep_keys}
+        self._pair_off_streak = {k: v for k, v in self._pair_off_streak.items() if k in keep_keys}

@@ -270,3 +270,4 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added CLI-scale controls for large synthetic graphs (`--nodes`, `--avg-degree`, `--seed`) and rendering controls (`--render-max-edges`, `--render-max-labels`) plus no-`scipy` layout fallback for large runs.
 - 2026-02-15: Added physics-based position update path (`--position-model physics`) and split high-scale renderer with `--format webgl` output for large graph replay.
 - 2026-02-15: Added design-aligned P2 tasks for adaptive plasticity (`A/E/R`) and supervisory adaptive control (confusion/forgetting guardrails with hysteresis rewiring lifecycle).
+- 2026-02-15: Implemented baseline `A/E/R` loop in adjuster with candidate filtering, hysteresis streak gating, and new observability metrics (`affinity_suggested_*`, tracked pairs, mean plasticity budget).

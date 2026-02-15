@@ -170,3 +170,4 @@ This is why we add supervisory/homeostatic constraints rather than pure Hebbian-
 - 2026-02-15: Added large-scale simulator support (parameterized synthetic graph generation for thousands of nodes, target fallback safety, and no-`scipy` layout fallback for high-node replay environments).
 - 2026-02-15: Added physically inspired node-motion mode (`position_model=physics`) using mass/velocity/damping/spring/field-force integration, and added separate WebGL replay renderer for large-graph visualization.
 - 2026-02-15: Revised architecture with adaptive-network evidence alignment: added planned latent-affinity/plasticity/hysteresis loop and a supervisory adaptive controller for confusion/forgetting stabilization.
+- 2026-02-15: Implemented first adaptive-plasticity pass in `DynamicGraphAdjuster`: persistent latent affinity/eligibility/plasticity states with hysteresis-based emergent-link suggestions merged into structural edit candidates.

@@ -191,6 +191,36 @@ class AdjustmentTests(unittest.TestCase):
             out_tuned.objective_terms["volatility"],
         )
 
+    def test_affinity_plasticity_suggests_emergent_link(self) -> None:
+        g = self._graph()
+        adjuster = DynamicGraphAdjuster(max_structural_edits=2, apply_structural_edits=False)
+        impacts = {"a": 1.0, "b": 0.05, "c": 1.0}
+        state = {"transition_speed": 0.55, "temporal_regularity": 0.35, "schedule_density": 2.8}
+
+        out = None
+        for _ in range(20):
+            out = adjuster.adjust(g, impact_by_actant=impacts, state=state)
+            g = out.adjusted_graph
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertGreaterEqual(out.affinity_suggested_new_edges, 1)
+        self.assertIn(("a", "c"), out.suggested_new_edges)
+
+    def test_plasticity_budget_is_bounded(self) -> None:
+        g = self._dense_graph()
+        adjuster = DynamicGraphAdjuster(max_structural_edits=2, apply_structural_edits=True)
+        impacts = {"a": 1.0, "b": 0.8, "c": 0.7, "d": 0.6, "e": 0.5}
+        state = {"transition_speed": 0.6, "temporal_regularity": 0.2, "schedule_density": 4.2}
+        out = None
+        for _ in range(5):
+            out = adjuster.adjust(g, impact_by_actant=impacts, state=state)
+            g = out.adjusted_graph
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertGreaterEqual(out.mean_plasticity_budget, 0.0)
+        self.assertLessEqual(out.mean_plasticity_budget, 1.0)
+        self.assertGreaterEqual(out.tracked_affinity_pairs, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

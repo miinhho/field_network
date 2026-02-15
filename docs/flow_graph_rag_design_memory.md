@@ -59,6 +59,8 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - Adaptive weighting layer added: objective/planner/rewiring behavior now responds to graph density (sparse vs dense) and impact-noise profile
 - Control-adjustment coupling integrated: graph adjustment objective now includes controller residual/divergence/energy penalty for tighter co-evolution feedback
 - Structural edit execution integrated: selected new/drop edges are now partially applied to graph topology each cycle (not suggestion-only)
+- Planner upgrade: adjustment rollout horizon is now adaptive to risk/density/noise/coupling, rather than fixed
+- Phase rigor upgrade: critical-slowing and hysteresis-proxy scores added for stronger phase-change interpretation
 
 ### Layer 3: Answer Composer + Guardrails
 
@@ -128,3 +130,4 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - 2026-02-15: Added sparse/dense/noise-adaptive weighting and exposed profile metrics (`graph_density`, `impact_noise`).
 - 2026-02-15: Added control-to-adjustment coupling penalty and exposed coupling metrics in predict/intervene outputs.
 - 2026-02-15: Enabled in-loop structural edits (`applied_new_edges`, `applied_drop_edges`) for true dynamic topology evolution.
+- 2026-02-15: Added adaptive planner horizon and phase rigor metrics (`critical_slowing_score`, `hysteresis_proxy_score`).

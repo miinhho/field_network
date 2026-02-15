@@ -171,6 +171,8 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Adaptive weighting by graph profile added (density/noise-aware objective and planning candidates)
   - Control-adjustment coupling term added to adjustment objective (`coupling_penalty` from residual/divergence/energy)
   - Structural-edit execution loop added (apply subset of suggested new/drop edges per cycle under risk-aware budget)
+  - Adaptive planner horizon added to adjustment rollout (risk/density/noise/coupling aware)
+  - Phase-change rigor upgraded with critical-slowing and hysteresis-proxy metrics
   - Analyzer configuration object for domain tuning (`FlowAnalyzerConfig`: thresholds, weights, lag)
   - Unit tests for dynamics and flow analysis
 - Missing:
@@ -223,3 +225,4 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added sparse/dense/noise-adaptive weighting and corresponding pipeline metrics.
 - 2026-02-15: Added control-adjustment coupling penalty and pipeline-level observability metrics.
 - 2026-02-15: Added applied structural edits in core cycle and observability metrics for applied new/drop counts.
+- 2026-02-15: Added adaptive planner horizon and upgraded phase-change metrics for long-history-like signals.

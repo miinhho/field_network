@@ -31,6 +31,10 @@ class PhaseTransitionTests(unittest.TestCase):
         self.assertGreaterEqual(out.regime_switch_count, 1)
         self.assertGreaterEqual(out.regime_persistence_score, 0.0)
         self.assertLessEqual(out.regime_persistence_score, 1.0)
+        self.assertGreaterEqual(out.critical_slowing_score, 0.0)
+        self.assertLessEqual(out.critical_slowing_score, 1.0)
+        self.assertGreaterEqual(out.hysteresis_proxy_score, 0.0)
+        self.assertLessEqual(out.hysteresis_proxy_score, 1.0)
         self.assertIn(out.dominant_regime, {"calm", "adaptive", "turbulent", "critical"})
 
     def test_empty_inputs_return_safe_defaults(self) -> None:
@@ -41,6 +45,8 @@ class PhaseTransitionTests(unittest.TestCase):
         self.assertEqual(out.regime_switch_count, 0)
         self.assertEqual(out.regime_persistence_score, 0.0)
         self.assertEqual(out.coherence_break_score, 0.0)
+        self.assertEqual(out.critical_slowing_score, 0.0)
+        self.assertEqual(out.hysteresis_proxy_score, 0.0)
         self.assertEqual(out.dominant_regime, "calm")
 
 

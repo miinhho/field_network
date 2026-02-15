@@ -10,6 +10,8 @@ class PhaseTransitionResult:
     regime_switch_count: int
     regime_persistence_score: float
     coherence_break_score: float
+    critical_slowing_score: float
+    hysteresis_proxy_score: float
     dominant_regime: str
 
 
@@ -35,7 +37,7 @@ class PhaseTransitionAnalyzer:
     ) -> PhaseTransitionResult:
         n = max(len(trajectory), len(attractor_distances), len(objective_scores), len(topological_tensions))
         if n == 0:
-            return PhaseTransitionResult(0.0, 0.0, 0, 0.0, 0.0, "calm")
+            return PhaseTransitionResult(0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, "calm")
 
         speed_series = [float(point.get("transition_speed", 0.0)) for point in trajectory]
         speed_series = self._align(speed_series, n)
@@ -60,7 +62,15 @@ class PhaseTransitionAnalyzer:
         max_deriv = max(deriv) if deriv else 0.0
         mean_obj_deriv = (sum(obj_deriv) / len(obj_deriv)) if obj_deriv else 0.0
 
-        critical = self._clip(0.5 * max_deriv + 0.3 * order_var + 0.2 * mean_obj_deriv)
+        critical_slowing = self._critical_slowing(order)
+        hysteresis_proxy = self._hysteresis_proxy(order, objective_n)
+        critical = self._clip(
+            0.4 * max_deriv
+            + 0.22 * order_var
+            + 0.15 * mean_obj_deriv
+            + 0.13 * critical_slowing
+            + 0.10 * hysteresis_proxy
+        )
         regime_labels = [self._regime(v) for v in order]
         switches = 0
         for i in range(1, len(regime_labels)):
@@ -91,6 +101,8 @@ class PhaseTransitionAnalyzer:
             regime_switch_count=switches,
             regime_persistence_score=round(persistence, 6),
             coherence_break_score=round(coherence_break, 6),
+            critical_slowing_score=round(critical_slowing, 6),
+            hysteresis_proxy_score=round(hysteresis_proxy, 6),
             dominant_regime=dominant_regime,
         )
 
@@ -171,3 +183,42 @@ class PhaseTransitionAnalyzer:
 
     def _clip(self, value: float) -> float:
         return max(0.0, min(1.0, value))
+
+    def _critical_slowing(self, order: list[float]) -> float:
+        if len(order) < 3:
+            return 0.0
+        ac1 = self._lag1_autocorr(order)
+        rolling_var: list[float] = []
+        for i in range(2, len(order)):
+            window = order[max(0, i - 2) : i + 1]
+            rolling_var.append(self._variance(window))
+        var_trend = max(0.0, rolling_var[-1] - rolling_var[0]) if len(rolling_var) >= 2 else (rolling_var[-1] if rolling_var else 0.0)
+        return self._clip(0.65 * ac1 + 0.35 * min(1.0, var_trend * 4.0))
+
+    def _hysteresis_proxy(self, order: list[float], objective_norm: list[float]) -> float:
+        n = min(len(order), len(objective_norm))
+        if n < 3:
+            return 0.0
+        mismatch = 0.0
+        for i in range(1, n):
+            d_order = order[i] - order[i - 1]
+            d_obj = objective_norm[i] - objective_norm[i - 1]
+            if d_order * d_obj < 0:
+                mismatch += 1.0
+        return self._clip(mismatch / (n - 1))
+
+    def _lag1_autocorr(self, values: list[float]) -> float:
+        if len(values) < 2:
+            return 0.0
+        x0 = values[:-1]
+        x1 = values[1:]
+        m0 = sum(x0) / len(x0)
+        m1 = sum(x1) / len(x1)
+        num = sum((a - m0) * (b - m1) for a, b in zip(x0, x1, strict=False))
+        den0 = sum((a - m0) ** 2 for a in x0)
+        den1 = sum((b - m1) ** 2 for b in x1)
+        den = (den0 * den1) ** 0.5
+        if den <= 1e-9:
+            return 0.0
+        corr = num / den
+        return max(0.0, min(1.0, (corr + 1.0) * 0.5))

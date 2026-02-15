@@ -31,6 +31,7 @@ class _CoreCycleSummary:
     mean_weight_shift: float
     mean_adjustment_objective: float
     mean_adjustment_scale: float
+    mean_planner_horizon: float
     mean_graph_density: float
     mean_impact_noise: float
     mean_coupling_penalty: float
@@ -58,6 +59,8 @@ class _CoreCycleSummary:
     regime_switch_count: int
     regime_persistence_score: float
     coherence_break_score: float
+    critical_slowing_score: float
+    hysteresis_proxy_score: float
     dominant_regime: str
     mean_cluster_objective: float
     mean_cross_scale_consistency: float
@@ -126,6 +129,7 @@ class FlowGraphRAG:
             f"Graph adjusted cumulatively: +{cycle.total_strengthened}/-{cycle.total_weakened} edges, mean shift={cycle.mean_weight_shift:.4f}.",
             f"Adjustment objective={cycle.mean_adjustment_objective:.4f} (lower is better).",
             f"Adjustment scale={cycle.mean_adjustment_scale:.3f}.",
+            f"Planner horizon={cycle.mean_planner_horizon:.2f}.",
             f"Graph density/noise={cycle.mean_graph_density:.3f}/{cycle.mean_impact_noise:.3f}.",
             f"Control-adjust coupling penalty={cycle.mean_coupling_penalty:.3f}.",
             f"Applied structural edits new/drop={cycle.mean_applied_new_edges:.2f}/{cycle.mean_applied_drop_edges:.2f}.",
@@ -155,6 +159,7 @@ class FlowGraphRAG:
             "mean_weight_shift": float(cycle.mean_weight_shift),
             "adjustment_objective_score": float(cycle.mean_adjustment_objective),
             "adjustment_scale": float(cycle.mean_adjustment_scale),
+            "planner_horizon": float(cycle.mean_planner_horizon),
             "graph_density": float(cycle.mean_graph_density),
             "impact_noise": float(cycle.mean_impact_noise),
             "coupling_penalty": float(cycle.mean_coupling_penalty),
@@ -185,6 +190,8 @@ class FlowGraphRAG:
             "regime_switch_count": float(cycle.regime_switch_count),
             "regime_persistence_score": float(cycle.regime_persistence_score),
             "coherence_break_score": float(cycle.coherence_break_score),
+            "critical_slowing_score": float(cycle.critical_slowing_score),
+            "hysteresis_proxy_score": float(cycle.hysteresis_proxy_score),
         }
         evidence_ids = [f"perturbation:{p.perturbation_id}"]
         return compose_answer("predict", claims, evidence_ids, metrics, uncertainty=0.35)
@@ -244,6 +251,8 @@ class FlowGraphRAG:
             "intervention_adjustment_objective_score": float(intervention_cycle.mean_adjustment_objective),
             "baseline_adjustment_scale": float(baseline_cycle.mean_adjustment_scale),
             "intervention_adjustment_scale": float(intervention_cycle.mean_adjustment_scale),
+            "baseline_planner_horizon": float(baseline_cycle.mean_planner_horizon),
+            "intervention_planner_horizon": float(intervention_cycle.mean_planner_horizon),
             "baseline_graph_density": float(baseline_cycle.mean_graph_density),
             "intervention_graph_density": float(intervention_cycle.mean_graph_density),
             "baseline_impact_noise": float(baseline_cycle.mean_impact_noise),
@@ -292,6 +301,10 @@ class FlowGraphRAG:
             "intervention_regime_persistence_score": float(intervention_cycle.regime_persistence_score),
             "baseline_coherence_break_score": float(baseline_cycle.coherence_break_score),
             "intervention_coherence_break_score": float(intervention_cycle.coherence_break_score),
+            "baseline_critical_slowing_score": float(baseline_cycle.critical_slowing_score),
+            "intervention_critical_slowing_score": float(intervention_cycle.critical_slowing_score),
+            "baseline_hysteresis_proxy_score": float(baseline_cycle.hysteresis_proxy_score),
+            "intervention_hysteresis_proxy_score": float(intervention_cycle.hysteresis_proxy_score),
         }
         evidence_ids = [f"perturbation:{p.perturbation_id}"]
         return compose_answer("intervene", claims, evidence_ids, metrics, uncertainty=0.4)
@@ -363,6 +376,7 @@ class FlowGraphRAG:
         mean_shifts: list[float] = []
         adjustment_objectives: list[float] = []
         adjustment_scales: list[float] = []
+        planner_horizons: list[int] = []
         graph_densities: list[float] = []
         impact_noises: list[float] = []
         coupling_penalties: list[float] = []
@@ -443,6 +457,7 @@ class FlowGraphRAG:
             mean_shifts.append(adjustment.mean_weight_shift)
             adjustment_objectives.append(adjustment.adjustment_objective_score)
             adjustment_scales.append(adjustment.selected_adjustment_scale)
+            planner_horizons.append(adjustment.selected_planner_horizon)
             graph_densities.append(adjustment.graph_density)
             impact_noises.append(adjustment.impact_noise)
             coupling_penalties.append(adjustment.coupling_penalty)
@@ -489,6 +504,9 @@ class FlowGraphRAG:
         )
         mean_adjustment_scale = (
             sum(adjustment_scales) / len(adjustment_scales) if adjustment_scales else 1.0
+        )
+        mean_planner_horizon = (
+            sum(planner_horizons) / len(planner_horizons) if planner_horizons else 3.0
         )
         mean_graph_density = sum(graph_densities) / len(graph_densities) if graph_densities else 0.0
         mean_impact_noise = sum(impact_noises) / len(impact_noises) if impact_noises else 0.0
@@ -539,6 +557,7 @@ class FlowGraphRAG:
             mean_weight_shift=mean_shift,
             mean_adjustment_objective=mean_adjustment_objective,
             mean_adjustment_scale=mean_adjustment_scale,
+            mean_planner_horizon=mean_planner_horizon,
             mean_graph_density=mean_graph_density,
             mean_impact_noise=mean_impact_noise,
             mean_coupling_penalty=mean_coupling_penalty,
@@ -566,6 +585,8 @@ class FlowGraphRAG:
             regime_switch_count=phase.regime_switch_count,
             regime_persistence_score=phase.regime_persistence_score,
             coherence_break_score=phase.coherence_break_score,
+            critical_slowing_score=phase.critical_slowing_score,
+            hysteresis_proxy_score=phase.hysteresis_proxy_score,
             dominant_regime=phase.dominant_regime,
             mean_cluster_objective=mean_cluster_obj,
             mean_cross_scale_consistency=mean_consistency,

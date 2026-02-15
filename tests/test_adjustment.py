@@ -54,6 +54,8 @@ class AdjustmentTests(unittest.TestCase):
         self.assertGreaterEqual(out.adjustment_objective_score, 0.0)
         self.assertGreaterEqual(out.selected_adjustment_scale, 0.4)
         self.assertLessEqual(out.selected_adjustment_scale, 1.5)
+        self.assertGreaterEqual(out.selected_planner_horizon, 2)
+        self.assertLessEqual(out.selected_planner_horizon, 5)
         self.assertGreaterEqual(out.graph_density, 0.0)
         self.assertLessEqual(out.graph_density, 1.0)
         self.assertGreaterEqual(out.impact_noise, 0.0)
@@ -87,6 +89,7 @@ class AdjustmentTests(unittest.TestCase):
         self.assertLessEqual(len(risky.suggested_drop_edges), len(base.suggested_drop_edges))
         self.assertGreaterEqual(risky.adjustment_objective_score, base.adjustment_objective_score - 1e-6)
         self.assertLessEqual(risky.selected_adjustment_scale, base.selected_adjustment_scale + 1e-6)
+        self.assertGreaterEqual(risky.selected_planner_horizon, base.selected_planner_horizon)
         self.assertLessEqual(risky.applied_new_edges + risky.applied_drop_edges, base.applied_new_edges + base.applied_drop_edges)
 
     def test_sparse_vs_dense_adaptive_profile(self) -> None:

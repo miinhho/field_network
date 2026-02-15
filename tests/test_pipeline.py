@@ -91,6 +91,7 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("mean_weight_shift", answer.metrics_used)
         self.assertIn("adjustment_objective_score", answer.metrics_used)
         self.assertIn("adjustment_scale", answer.metrics_used)
+        self.assertIn("planner_horizon", answer.metrics_used)
         self.assertIn("graph_density", answer.metrics_used)
         self.assertIn("impact_noise", answer.metrics_used)
         self.assertIn("coupling_penalty", answer.metrics_used)
@@ -116,6 +117,8 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("regime_switch_count", answer.metrics_used)
         self.assertIn("regime_persistence_score", answer.metrics_used)
         self.assertIn("coherence_break_score", answer.metrics_used)
+        self.assertIn("critical_slowing_score", answer.metrics_used)
+        self.assertIn("hysteresis_proxy_score", answer.metrics_used)
 
     def test_intervene_route_returns_rewiring_metric(self) -> None:
         answer = self.rag.run(self.graph, Query(text="intervene to reduce risk"))
@@ -136,6 +139,8 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("intervention_adjustment_objective_score", answer.metrics_used)
         self.assertIn("baseline_adjustment_scale", answer.metrics_used)
         self.assertIn("intervention_adjustment_scale", answer.metrics_used)
+        self.assertIn("baseline_planner_horizon", answer.metrics_used)
+        self.assertIn("intervention_planner_horizon", answer.metrics_used)
         self.assertIn("baseline_graph_density", answer.metrics_used)
         self.assertIn("intervention_graph_density", answer.metrics_used)
         self.assertIn("baseline_impact_noise", answer.metrics_used)
@@ -168,6 +173,10 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("intervention_early_warning_score", answer.metrics_used)
         self.assertIn("baseline_regime_persistence_score", answer.metrics_used)
         self.assertIn("intervention_regime_persistence_score", answer.metrics_used)
+        self.assertIn("baseline_critical_slowing_score", answer.metrics_used)
+        self.assertIn("intervention_critical_slowing_score", answer.metrics_used)
+        self.assertIn("baseline_hysteresis_proxy_score", answer.metrics_used)
+        self.assertIn("intervention_hysteresis_proxy_score", answer.metrics_used)
 
     def test_guardrail_blocks_subjective_inference(self) -> None:
         answer = self.rag.run(self.graph, Query(text="describe"))

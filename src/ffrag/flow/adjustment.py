@@ -18,6 +18,7 @@ class GraphAdjustmentResult:
     mean_weight_shift: float
     adjustment_objective_score: float
     selected_adjustment_scale: float
+    selected_planner_horizon: int
     graph_density: float
     impact_noise: float
     coupling_penalty: float
@@ -65,6 +66,7 @@ class DynamicGraphAdjuster:
         density, impact_noise = self._graph_profile(graph, impact_by_actant)
         coupling = self._control_coupling_penalty(control_context)
         lr_scale = 1.0 - 0.6 * phase_risk
+        planner_horizon = self._planner_horizon(density, impact_noise, phase_risk, coupling)
         plan_scale = self._select_adjustment_scale(
             graph=graph,
             impact_by_actant=impact_by_actant,
@@ -74,6 +76,7 @@ class DynamicGraphAdjuster:
             density=density,
             impact_noise=impact_noise,
             coupling_penalty=coupling,
+            planner_horizon=planner_horizon,
             lr_scale=lr_scale,
         )
 
@@ -157,6 +160,7 @@ class DynamicGraphAdjuster:
             mean_weight_shift=round(mean_shift, 6),
             adjustment_objective_score=round(objective, 6),
             selected_adjustment_scale=round(plan_scale, 6),
+            selected_planner_horizon=planner_horizon,
             graph_density=round(density, 6),
             impact_noise=round(impact_noise, 6),
             coupling_penalty=round(coupling, 6),
@@ -326,6 +330,7 @@ class DynamicGraphAdjuster:
         density: float,
         impact_noise: float,
         coupling_penalty: float,
+        planner_horizon: int,
         lr_scale: float,
     ) -> float:
         candidates = self._planner_candidates(density, impact_noise, phase_risk)
@@ -343,6 +348,7 @@ class DynamicGraphAdjuster:
                 coupling_penalty=coupling_penalty,
                 lr_scale=lr_scale,
                 scale=scale,
+                horizon=planner_horizon,
             )
             if obj < best_obj:
                 best_obj = obj
@@ -361,6 +367,7 @@ class DynamicGraphAdjuster:
         coupling_penalty: float,
         lr_scale: float,
         scale: float,
+        horizon: int,
     ) -> float:
         base_shifts = self._simulate_shifts(
             graph=graph,
@@ -382,7 +389,7 @@ class DynamicGraphAdjuster:
         discount = 1.0
         inst = instability
         risk = phase_risk
-        for _ in range(3):
+        for _ in range(max(2, horizon)):
             volatility = max(0.0, inst - viscosity)
             step_obj = self._adjustment_objective(
                 mean_abs_shift=mean_abs_shift,
@@ -455,6 +462,23 @@ class DynamicGraphAdjuster:
         if density > 0.65 or impact_noise > 0.7:
             return (0.45, 0.65, 0.85, 1.0)
         return (0.5, 0.8, 1.0, 1.2)
+
+    def _planner_horizon(
+        self,
+        density: float,
+        impact_noise: float,
+        phase_risk: float,
+        coupling_penalty: float,
+    ) -> int:
+        if phase_risk > 0.75 or coupling_penalty > 0.8:
+            return 5
+        if density < 0.2 and impact_noise < 0.45:
+            return 4
+        if impact_noise > 0.75:
+            return 5
+        if density > 0.7:
+            return 3
+        return 4
 
     def _control_coupling_penalty(self, control_context: dict[str, float] | None) -> float:
         if not control_context:

@@ -79,6 +79,12 @@ class DynamicGraphSimulator:
         perturbation: Perturbation,
         steps: int = 5,
         top_k: int = 5,
+        position_model: str = "hybrid",
+        physics_substeps: int = 4,
+        physics_dt: float = 0.06,
+        physics_damping: float = 0.92,
+        physics_spring_k: float = 0.85,
+        physics_field_k: float = 0.60,
     ) -> SimulationTrace:
         current_graph = graph
         frames: list[SimulationFrame] = []
@@ -88,6 +94,7 @@ class DynamicGraphSimulator:
         topological_tensions: list[float] = []
         prev_phase_context: dict[str, float] = {}
         prev_layout: dict[str, tuple[float, float]] | None = None
+        prev_velocity: dict[str, tuple[float, float]] = {}
 
         for step in range(1, max(1, steps) + 1):
             before_edges = self._edge_weights(current_graph)
@@ -154,12 +161,27 @@ class DynamicGraphSimulator:
             top_impacts = self._topk(prop.impact_by_actant, top_k)
             top_controls = self._topk(control.node_control, top_k, by_abs=True)
             top_final = self._topk(control.controlled_impact, top_k)
-            frame_layout = self._layout(current_graph, prev_layout)
-            frame_layout = self._advect_layout(
-                frame_layout,
-                control.node_control,
-                prop.impact_by_actant,
-            )
+            base_layout = self._layout(current_graph, prev_layout)
+            if position_model == "physics":
+                frame_layout, prev_velocity = self._physical_step(
+                    current_graph,
+                    base_layout,
+                    prev_velocity,
+                    control.node_control,
+                    prop.impact_by_actant,
+                    substeps=max(1, int(physics_substeps)),
+                    dt=max(0.005, float(physics_dt)),
+                    damping=max(0.5, min(0.999, float(physics_damping))),
+                    spring_k=max(0.01, float(physics_spring_k)),
+                    field_k=max(0.0, float(physics_field_k)),
+                )
+            else:
+                frame_layout = self._advect_layout(
+                    base_layout,
+                    control.node_control,
+                    prop.impact_by_actant,
+                )
+                prev_velocity = {}
             prev_layout = frame_layout
 
             frames.append(
@@ -431,3 +453,98 @@ class DynamicGraphSimulator:
                 nxt[nid] = (max(-1.2, min(1.2, nx_)), max(-1.2, min(1.2, ny_)))
             pos = nxt
         return pos
+
+    def _physical_step(
+        self,
+        graph: LayeredGraph,
+        initial_pos: dict[str, tuple[float, float]],
+        prev_velocity: dict[str, tuple[float, float]],
+        node_control: dict[str, float],
+        node_impact: dict[str, float],
+        substeps: int,
+        dt: float,
+        damping: float,
+        spring_k: float,
+        field_k: float,
+    ) -> tuple[dict[str, tuple[float, float]], dict[str, tuple[float, float]]]:
+        pos = dict(initial_pos)
+        vel: dict[str, tuple[float, float]] = {
+            nid: tuple(prev_velocity.get(nid, (0.0, 0.0))) for nid in graph.actants.keys()
+        }
+        max_ctrl = max((abs(v) for v in node_control.values()), default=1.0) or 1.0
+        max_imp = max((abs(v) for v in node_impact.values()), default=1.0) or 1.0
+
+        masses: dict[str, float] = {nid: 1.0 for nid in graph.actants.keys()}
+        degs: dict[str, float] = {nid: 0.0 for nid in graph.actants.keys()}
+        for e in graph.interactions:
+            w = max(0.01, float(e.weight))
+            degs[e.source_id] = degs.get(e.source_id, 0.0) + w
+            degs[e.target_id] = degs.get(e.target_id, 0.0) + w
+        for nid, d in degs.items():
+            masses[nid] = 1.0 + math.log1p(max(0.0, d))
+
+        for _ in range(substeps):
+            forces: dict[str, list[float]] = {nid: [0.0, 0.0] for nid in graph.actants.keys()}
+
+            # Edge spring + short-range collision force.
+            for e in graph.interactions:
+                a = e.source_id
+                b = e.target_id
+                if a not in pos or b not in pos:
+                    continue
+                ax, ay = pos[a]
+                bx, by = pos[b]
+                dx = bx - ax
+                dy = by - ay
+                dist = math.sqrt(dx * dx + dy * dy) + 1e-9
+                ux = dx / dist
+                uy = dy / dist
+                w = max(0.01, float(e.weight))
+                rest = max(0.05, 0.28 / (0.35 + w))
+                fs = spring_k * w * (dist - rest)
+                fx = fs * ux
+                fy = fs * uy
+                forces[a][0] += fx
+                forces[a][1] += fy
+                forces[b][0] -= fx
+                forces[b][1] -= fy
+
+                # Avoid node overlap under heavy attraction.
+                if dist < 0.04:
+                    rep = (0.04 - dist) * 2.0
+                    rx = rep * ux
+                    ry = rep * uy
+                    forces[a][0] -= rx
+                    forces[a][1] -= ry
+                    forces[b][0] += rx
+                    forces[b][1] += ry
+
+            # External flow field force from control/impact.
+            for nid in graph.actants.keys():
+                c = float(node_control.get(nid, 0.0)) / max_ctrl
+                p = float(node_impact.get(nid, 0.0)) / max_imp
+                forces[nid][0] += field_k * c
+                forces[nid][1] += field_k * p
+
+            # Weak central restoring term to keep bounded domain.
+            for nid in graph.actants.keys():
+                x, y = pos.get(nid, (0.0, 0.0))
+                forces[nid][0] += -0.10 * x
+                forces[nid][1] += -0.10 * y
+
+            # Semi-implicit Euler integration.
+            for nid in graph.actants.keys():
+                x, y = pos.get(nid, (0.0, 0.0))
+                vx, vy = vel.get(nid, (0.0, 0.0))
+                fx, fy = forces[nid]
+                mass = max(0.1, masses.get(nid, 1.0))
+                vx = (vx + dt * (fx / mass)) * damping
+                vy = (vy + dt * (fy / mass)) * damping
+                x = x + dt * vx
+                y = y + dt * vy
+                x = max(-1.2, min(1.2, x))
+                y = max(-1.2, min(1.2, y))
+                pos[nid] = (x, y)
+                vel[nid] = (vx, vy)
+
+        return pos, vel

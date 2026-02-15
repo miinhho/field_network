@@ -149,3 +149,4 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - 2026-02-15: Added HTML replay mode to simulator for visual step-by-step graph evolution playback.
 - 2026-02-15: Updated simulator to expose and render per-frame node positions with flow-driven advection so influence-induced node movement is visible (not static final-layout replay).
 - 2026-02-15: Added large-scale simulator support (parameterized synthetic graph generation for thousands of nodes, target fallback safety, and no-`scipy` layout fallback for high-node replay environments).
+- 2026-02-15: Added physically inspired node-motion mode (`position_model=physics`) using mass/velocity/damping/spring/field-force integration, and added separate WebGL replay renderer for large-graph visualization.

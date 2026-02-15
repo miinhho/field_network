@@ -58,6 +58,32 @@ class DynamicSimulatorCLITests(unittest.TestCase):
         self.assertIn("<html", text.lower())
         out_path.unlink()
 
+    def test_cli_webgl_output(self) -> None:
+        out_path = ROOT / "tests" / "tmp_simulator_trace_webgl.html"
+        if out_path.exists():
+            out_path.unlink()
+        cmd = [
+            str(ROOT / ".venv" / "bin" / "python"),
+            "-m",
+            "ffrag.dynamic_simulator_cli",
+            "--steps",
+            "2",
+            "--nodes",
+            "300",
+            "--position-model",
+            "physics",
+            "--format",
+            "webgl",
+            "--out",
+            str(out_path),
+        ]
+        out = subprocess.run(cmd, cwd=ROOT, check=True, capture_output=True, text=True)
+        self.assertIn("wrote_webgl", out.stdout)
+        self.assertTrue(out_path.exists())
+        text = out_path.read_text(encoding="utf-8")
+        self.assertIn("getContext(\"webgl\"", text)
+        out_path.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()

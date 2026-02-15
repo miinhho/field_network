@@ -17,9 +17,15 @@ def main() -> None:
     parser.add_argument("--nodes", type=int, default=6)
     parser.add_argument("--avg-degree", type=float, default=2.3)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--position-model", choices=("hybrid", "physics"), default="hybrid")
+    parser.add_argument("--physics-substeps", type=int, default=4)
+    parser.add_argument("--physics-dt", type=float, default=0.06)
+    parser.add_argument("--physics-damping", type=float, default=0.92)
+    parser.add_argument("--physics-spring-k", type=float, default=0.85)
+    parser.add_argument("--physics-field-k", type=float, default=0.60)
     parser.add_argument("--render-max-edges", type=int, default=6000)
     parser.add_argument("--render-max-labels", type=int, default=40)
-    parser.add_argument("--format", choices=("table", "json", "html"), default="table")
+    parser.add_argument("--format", choices=("table", "json", "html", "webgl"), default="table")
     parser.add_argument("--out", type=str, default="simulator_trace.html")
     args = parser.parse_args()
 
@@ -33,7 +39,18 @@ def main() -> None:
         intensity=max(0.0, args.intensity),
         kind="simulation",
     )
-    trace = sim.run(graph, perturbation, steps=max(1, args.steps), top_k=max(1, args.top_k))
+    trace = sim.run(
+        graph,
+        perturbation,
+        steps=max(1, args.steps),
+        top_k=max(1, args.top_k),
+        position_model=args.position_model,
+        physics_substeps=max(1, args.physics_substeps),
+        physics_dt=max(0.005, args.physics_dt),
+        physics_damping=min(0.999, max(0.5, args.physics_damping)),
+        physics_spring_k=max(0.01, args.physics_spring_k),
+        physics_field_k=max(0.0, args.physics_field_k),
+    )
 
     if args.format == "json":
         print(json.dumps(_to_json(trace), ensure_ascii=True, indent=2))
@@ -47,6 +64,12 @@ def main() -> None:
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(html)
         print(f"wrote_html,{args.out}")
+        return
+    if args.format == "webgl":
+        html = _to_webgl_html(trace, render_max_edges=max(200, args.render_max_edges))
+        with open(args.out, "w", encoding="utf-8") as f:
+            f.write(html)
+        print(f"wrote_webgl,{args.out}")
         return
     _print_table(trace)
 
@@ -357,6 +380,208 @@ def _to_html(trace, render_max_edges: int = 6000, render_max_labels: int = 40) -
         .replace("__MAX_EDGES__", str(max(1, int(render_max_edges))))
         .replace("__MAX_LABELS__", str(max(0, int(render_max_labels))))
     )
+
+
+def _to_webgl_html(trace, render_max_edges: int = 10000) -> str:
+    payload = json.dumps(_to_json(trace), ensure_ascii=True)
+    html = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Flow Graph WebGL Replay</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Noto Sans", sans-serif;
+      background: #090d1c;
+      color: #e8ecff;
+    }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 16px; }
+    .row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+    #gl { width: 100%; height: 760px; border: 1px solid #273058; border-radius: 8px; }
+    input[type="range"] { width: 100%; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2>Flow Graph WebGL Replay</h2>
+    <canvas id="gl" width="1200" height="760"></canvas>
+    <div class="row">
+      <span>Step</span>
+      <input id="step" type="range" min="0" max="0" value="0" />
+      <strong id="stepLabel">1</strong>
+      <button id="playBtn" type="button">Play</button>
+    </div>
+  </div>
+  <script>
+    const DATA = __PAYLOAD__;
+    const MAX_EDGES = __MAX_EDGES__;
+    const frames = DATA.frames || [];
+    const slider = document.getElementById("step");
+    const stepLabel = document.getElementById("stepLabel");
+    const playBtn = document.getElementById("playBtn");
+    slider.max = Math.max(0, frames.length - 1);
+    const canvas = document.getElementById("gl");
+    const gl = canvas.getContext("webgl", { antialias: true });
+    if (!gl) {
+      alert("WebGL not supported in this browser");
+      throw new Error("webgl_not_supported");
+    }
+
+    let timer = null;
+
+    function compile(type, src) {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, src);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        throw new Error(gl.getShaderInfoLog(shader) || "shader_compile_failed");
+      }
+      return shader;
+    }
+    function program(vsSrc, fsSrc) {
+      const vs = compile(gl.VERTEX_SHADER, vsSrc);
+      const fs = compile(gl.FRAGMENT_SHADER, fsSrc);
+      const p = gl.createProgram();
+      gl.attachShader(p, vs);
+      gl.attachShader(p, fs);
+      gl.linkProgram(p);
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+        throw new Error(gl.getProgramInfoLog(p) || "program_link_failed");
+      }
+      return p;
+    }
+
+    const lineProgram = program(
+      "attribute vec2 a_pos; attribute vec3 a_color; varying vec3 v_color; void main(){ gl_Position = vec4(a_pos,0.0,1.0); v_color=a_color; }",
+      "precision mediump float; varying vec3 v_color; void main(){ gl_FragColor=vec4(v_color,0.5); }"
+    );
+    const pointProgram = program(
+      "attribute vec2 a_pos; attribute vec3 a_color; varying vec3 v_color; void main(){ gl_Position = vec4(a_pos,0.0,1.0); gl_PointSize=3.5; v_color=a_color; }",
+      "precision mediump float; varying vec3 v_color; void main(){ vec2 c = gl_PointCoord - vec2(0.5); if(dot(c,c) > 0.25) discard; gl_FragColor=vec4(v_color,0.95); }"
+    );
+
+    const linePosBuf = gl.createBuffer();
+    const lineColBuf = gl.createBuffer();
+    const pointPosBuf = gl.createBuffer();
+    const pointColBuf = gl.createBuffer();
+
+    function norm(x) {
+      return Math.max(-1.0, Math.min(1.0, x / 1.2));
+    }
+    function colorForControl(c) {
+      const v = Math.max(-1, Math.min(1, Number(c || 0)));
+      if (v >= 0) return [0.35, 0.82, 1.0];
+      return [1.0, 0.65, 0.35];
+    }
+
+    function buildFrameBuffers(f) {
+      const pos = f.node_positions || {};
+      const controls = f.node_controls || {};
+      const edges = (f.edges || []).slice().sort((a,b) => Number(b.weight||0)-Number(a.weight||0)).slice(0, MAX_EDGES);
+
+      const linePos = [];
+      const lineCol = [];
+      for (const e of edges) {
+        const a = pos[e.source_id];
+        const b = pos[e.target_id];
+        if (!a || !b) continue;
+        linePos.push(norm(a[0]), norm(a[1]), norm(b[0]), norm(b[1]));
+        lineCol.push(0.58, 0.64, 0.95, 0.58, 0.64, 0.95);
+      }
+
+      const pointPos = [];
+      const pointCol = [];
+      for (const nid of Object.keys(pos)) {
+        const p = pos[nid];
+        pointPos.push(norm(p[0]), norm(p[1]));
+        const c = colorForControl(controls[nid]);
+        pointCol.push(c[0], c[1], c[2]);
+      }
+
+      return {
+        linePos: new Float32Array(linePos),
+        lineCol: new Float32Array(lineCol),
+        pointPos: new Float32Array(pointPos),
+        pointCol: new Float32Array(pointCol),
+      };
+    }
+
+    function draw(i) {
+      const f = frames[i];
+      if (!f) return;
+      const b = buildFrameBuffers(f);
+
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.clearColor(0.04, 0.06, 0.13, 1.0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+
+      if (b.linePos.length > 0) {
+        gl.useProgram(lineProgram);
+        const lp = gl.getAttribLocation(lineProgram, "a_pos");
+        const lc = gl.getAttribLocation(lineProgram, "a_color");
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, linePosBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, b.linePos, gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(lp);
+        gl.vertexAttribPointer(lp, 2, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, lineColBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, b.lineCol, gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(lc);
+        gl.vertexAttribPointer(lc, 3, gl.FLOAT, false, 0, 0);
+        gl.drawArrays(gl.LINES, 0, b.linePos.length / 2);
+      }
+
+      if (b.pointPos.length > 0) {
+        gl.useProgram(pointProgram);
+        const pp = gl.getAttribLocation(pointProgram, "a_pos");
+        const pc = gl.getAttribLocation(pointProgram, "a_color");
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, pointPosBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, b.pointPos, gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(pp);
+        gl.vertexAttribPointer(pp, 2, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, pointColBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, b.pointCol, gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(pc);
+        gl.vertexAttribPointer(pc, 3, gl.FLOAT, false, 0, 0);
+        gl.drawArrays(gl.POINTS, 0, b.pointPos.length / 2);
+      }
+
+      stepLabel.textContent = String(f.step);
+    }
+
+    slider.addEventListener("input", () => draw(Number(slider.value)));
+    playBtn.addEventListener("click", () => {
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+        playBtn.textContent = "Play";
+        return;
+      }
+      playBtn.textContent = "Pause";
+      timer = setInterval(() => {
+        const cur = Number(slider.value);
+        const next = cur + 1;
+        if (next >= frames.length) {
+          clearInterval(timer);
+          timer = null;
+          playBtn.textContent = "Play";
+          return;
+        }
+        slider.value = String(next);
+        draw(next);
+      }, 500);
+    });
+
+    draw(0);
+  </script>
+</body>
+</html>"""
+    return html.replace("__PAYLOAD__", payload).replace("__MAX_EDGES__", str(max(1, int(render_max_edges))))
 
 
 if __name__ == "__main__":

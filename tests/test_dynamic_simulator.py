@@ -51,6 +51,19 @@ class DynamicSimulatorTests(unittest.TestCase):
         self.assertEqual(len(g.actants), 1200)
         self.assertGreaterEqual(len(g.interactions), 1199)
 
+    def test_simulator_physics_position_model(self) -> None:
+        sim = DynamicGraphSimulator()
+        g = sim.generate_graph(node_count=120, avg_degree=3.2, seed=13)
+        p = Perturbation(
+            perturbation_id="sim-test-p2",
+            timestamp=datetime(2026, 2, 3, 9, 30, 0),
+            targets=["n0"],
+            intensity=1.2,
+        )
+        trace = sim.run(g, p, steps=2, top_k=5, position_model="physics", physics_substeps=3)
+        self.assertEqual(len(trace.frames), 2)
+        self.assertGreaterEqual(len(trace.frames[0].node_positions), 100)
+
 
 if __name__ == "__main__":
     unittest.main()

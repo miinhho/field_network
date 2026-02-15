@@ -67,6 +67,8 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - Calibration hook added: `AdjustmentPlannerConfig` exposes objective/planner coefficients for offline tuning without changing core code
 - Objective observability added: adjustment result now reports term-level contributions (`churn/volatility/rewiring/risk/coupling`)
 - Extreme integration tests added for sparse/dense/high-noise-like scenarios
+- Structural safety constraints added to edit execution: edge drops now preserve endpoint minimum degree and avoid increasing connected-component count
+- Planner now jointly reasons over scale/budget with phase-rigor constraints (`critical_slowing`, `hysteresis_proxy`) propagated into adjustment policy
 
 ### Layer 3: Answer Composer + Guardrails
 
@@ -140,3 +142,4 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - 2026-02-15: Added joint planning for adjustment scale + edit budget (`edit_budget`) in the core loop.
 - 2026-02-15: Refined rollout dynamics model and wired phase-rigor signals into planner constraints.
 - 2026-02-15: Added planner calibration hooks, term-level objective logging, and extreme scenario integration tests.
+- 2026-02-15: Added structural safety constraints for drop edits and completed phase-rigor signal propagation into planner policy.

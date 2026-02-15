@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import combinations
+from typing import Iterable
 
 import numpy as np
 
@@ -26,6 +27,7 @@ class GraphAdjustmentResult:
     objective_terms: dict[str, float]
     applied_new_edges: int
     applied_drop_edges: int
+    blocked_drop_edges: int
     suggested_new_edges: list[tuple[str, str]]
     suggested_drop_edges: list[tuple[str, str]]
 
@@ -177,6 +179,11 @@ class DynamicGraphAdjuster:
             slowing=slowing,
             requested_budget=plan_budget,
         )
+        blocked_drop = self._estimate_blocked_drop_count(
+            adjusted=adjusted,
+            suggested_drop=suggested_drop,
+            requested_drop=max(0, min(plan_budget // 2 if plan_budget > 1 else 0, len(suggested_drop))),
+        )
         mean_shift = sum(shifts) / len(shifts) if shifts else 0.0
         mean_abs_shift = (sum(abs(v) for v in shifts) / len(shifts)) if shifts else 0.0
         objective = self._adjustment_objective(
@@ -218,6 +225,7 @@ class DynamicGraphAdjuster:
             objective_terms=objective_terms,
             applied_new_edges=applied_new,
             applied_drop_edges=applied_drop,
+            blocked_drop_edges=blocked_drop,
             suggested_new_edges=suggested_new,
             suggested_drop_edges=suggested_drop,
         )
@@ -643,8 +651,9 @@ class DynamicGraphAdjuster:
             key = tuple(sorted(pair))
             idx = self._find_interaction_index(adjusted.interactions, key)
             if idx is not None:
-                adjusted.interactions.pop(idx)
-                dropped += 1
+                if self._can_drop_edge(adjusted, idx):
+                    adjusted.interactions.pop(idx)
+                    dropped += 1
 
         existing = {tuple(sorted((e.source_id, e.target_id))) for e in adjusted.interactions}
         added = 0
@@ -667,6 +676,32 @@ class DynamicGraphAdjuster:
             added += 1
         return added, dropped
 
+    def _estimate_blocked_drop_count(
+        self,
+        adjusted: LayeredGraph,
+        suggested_drop: list[tuple[str, str]],
+        requested_drop: int,
+    ) -> int:
+        if requested_drop <= 0:
+            return 0
+        blocked = 0
+        temp_graph = LayeredGraph(
+            graph_id=adjusted.graph_id,
+            schema_version=adjusted.schema_version,
+            actants=dict(adjusted.actants),
+            interactions=list(adjusted.interactions),
+        )
+        for pair in suggested_drop[:requested_drop]:
+            key = tuple(sorted(pair))
+            idx = self._find_interaction_index(temp_graph.interactions, key)
+            if idx is None:
+                continue
+            if self._can_drop_edge(temp_graph, idx):
+                temp_graph.interactions.pop(idx)
+            else:
+                blocked += 1
+        return blocked
+
     def _find_interaction_index(self, interactions: list[Interaction], pair_key: tuple[str, str]) -> int | None:
         best_idx: int | None = None
         best_weight = float("inf")
@@ -683,6 +718,59 @@ class DynamicGraphAdjuster:
         if not interactions:
             return datetime.utcnow()
         return max(edge.timestamp for edge in interactions)
+
+    def _can_drop_edge(self, graph: LayeredGraph, edge_idx: int) -> bool:
+        interactions = graph.interactions
+        if edge_idx < 0 or edge_idx >= len(interactions):
+            return False
+        edge = interactions[edge_idx]
+        if edge.source_id == edge.target_id:
+            return True
+
+        # Keep at least one incident edge per endpoint when possible.
+        deg = self._degree_map(interactions)
+        if deg.get(edge.source_id, 0) <= 1 or deg.get(edge.target_id, 0) <= 1:
+            return False
+
+        before_cc = self._component_count(graph.actants.keys(), interactions)
+        after = interactions[:edge_idx] + interactions[edge_idx + 1 :]
+        after_cc = self._component_count(graph.actants.keys(), after)
+        return after_cc <= before_cc
+
+    def _degree_map(self, interactions: list[Interaction]) -> dict[str, int]:
+        out: dict[str, int] = {}
+        for e in interactions:
+            if e.source_id == e.target_id:
+                out[e.source_id] = out.get(e.source_id, 0) + 1
+                continue
+            out[e.source_id] = out.get(e.source_id, 0) + 1
+            out[e.target_id] = out.get(e.target_id, 0) + 1
+        return out
+
+    def _component_count(self, nodes: Iterable[str], interactions: list[Interaction]) -> int:
+        adjacency: dict[str, set[str]] = {n: set() for n in nodes}
+        for e in interactions:
+            if e.source_id == e.target_id:
+                continue
+            adjacency.setdefault(e.source_id, set()).add(e.target_id)
+            adjacency.setdefault(e.target_id, set()).add(e.source_id)
+
+        visited: set[str] = set()
+        comps = 0
+        for n in adjacency.keys():
+            if n in visited:
+                continue
+            comps += 1
+            stack = [n]
+            visited.add(n)
+            while stack:
+                cur = stack.pop()
+                for nxt in adjacency.get(cur, set()):
+                    if nxt in visited:
+                        continue
+                    visited.add(nxt)
+                    stack.append(nxt)
+        return comps
 
     def _phase_slowing(self, phase_context: dict[str, float] | None) -> float:
         if not phase_context:

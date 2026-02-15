@@ -66,6 +66,7 @@ class AdjustmentTests(unittest.TestCase):
         self.assertLessEqual(out.coupling_penalty, 1.0)
         self.assertGreaterEqual(out.applied_new_edges, 0)
         self.assertGreaterEqual(out.applied_drop_edges, 0)
+        self.assertGreaterEqual(out.blocked_drop_edges, 0)
         self.assertLessEqual(out.applied_new_edges, len(out.suggested_new_edges))
         self.assertLessEqual(out.applied_drop_edges, len(out.suggested_drop_edges))
 
@@ -154,6 +155,22 @@ class AdjustmentTests(unittest.TestCase):
             },
         )
         self.assertLessEqual(slowed.selected_edit_budget, base.selected_edit_budget)
+
+    def test_bridge_edge_drop_is_blocked_by_safety_constraint(self) -> None:
+        g = LayeredGraph(graph_id="ga_bridge", schema_version="0.1")
+        g.actants = {
+            "x": Actant("x", "person", "X"),
+            "y": Actant("y", "person", "Y"),
+            "z": Actant("z", "person", "Z"),
+        }
+        g.interactions = [
+            Interaction("b1", datetime(2026, 2, 2, 9), "x", "y", "social", 0.2),
+            Interaction("b2", datetime(2026, 2, 2, 10), "y", "z", "social", 0.2),
+        ]
+        adjuster = DynamicGraphAdjuster(max_structural_edits=2, apply_structural_edits=True)
+        # Either edge in a 3-node chain is a bridge and should be protected.
+        self.assertFalse(adjuster._can_drop_edge(g, 0))
+        self.assertFalse(adjuster._can_drop_edge(g, 1))
 
     def test_planner_config_hook_changes_objective_terms(self) -> None:
         default_adjuster = DynamicGraphAdjuster()

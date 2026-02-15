@@ -44,6 +44,7 @@ class _CoreCycleSummary:
     mean_adjustment_term_coupling: float
     mean_applied_new_edges: float
     mean_applied_drop_edges: float
+    mean_blocked_drop_edges: float
     mean_suggested_new_edges: float
     mean_suggested_drop_edges: float
     mean_control_energy: float
@@ -183,6 +184,7 @@ class FlowGraphRAG:
             "adjustment_term_coupling": float(cycle.mean_adjustment_term_coupling),
             "applied_new_edges": float(cycle.mean_applied_new_edges),
             "applied_drop_edges": float(cycle.mean_applied_drop_edges),
+            "blocked_drop_edges": float(cycle.mean_blocked_drop_edges),
             "suggested_new_edges": float(cycle.mean_suggested_new_edges),
             "suggested_drop_edges": float(cycle.mean_suggested_drop_edges),
             "control_energy": float(cycle.mean_control_energy),
@@ -293,6 +295,8 @@ class FlowGraphRAG:
             "intervention_applied_new_edges": float(intervention_cycle.mean_applied_new_edges),
             "baseline_applied_drop_edges": float(baseline_cycle.mean_applied_drop_edges),
             "intervention_applied_drop_edges": float(intervention_cycle.mean_applied_drop_edges),
+            "baseline_blocked_drop_edges": float(baseline_cycle.mean_blocked_drop_edges),
+            "intervention_blocked_drop_edges": float(intervention_cycle.mean_blocked_drop_edges),
             "baseline_strengthened_edges": float(baseline_cycle.total_strengthened),
             "intervention_strengthened_edges": float(intervention_cycle.total_strengthened),
             "baseline_control_energy": float(baseline_cycle.mean_control_energy),
@@ -418,6 +422,7 @@ class FlowGraphRAG:
         term_coupling: list[float] = []
         applied_new_counts: list[int] = []
         applied_drop_counts: list[int] = []
+        blocked_drop_counts: list[int] = []
         new_edge_counts: list[int] = []
         drop_edge_counts: list[int] = []
         control_energies: list[float] = []
@@ -507,6 +512,7 @@ class FlowGraphRAG:
             term_coupling.append(float(adjustment.objective_terms.get("coupling", 0.0)))
             applied_new_counts.append(adjustment.applied_new_edges)
             applied_drop_counts.append(adjustment.applied_drop_edges)
+            blocked_drop_counts.append(adjustment.blocked_drop_edges)
             new_edge_counts.append(len(adjustment.suggested_new_edges))
             drop_edge_counts.append(len(adjustment.suggested_drop_edges))
             control_energies.append(control.control_energy)
@@ -563,6 +569,7 @@ class FlowGraphRAG:
         mean_term_coupling = sum(term_coupling) / len(term_coupling) if term_coupling else 0.0
         mean_applied_new = sum(applied_new_counts) / len(applied_new_counts) if applied_new_counts else 0.0
         mean_applied_drop = sum(applied_drop_counts) / len(applied_drop_counts) if applied_drop_counts else 0.0
+        mean_blocked_drop = sum(blocked_drop_counts) / len(blocked_drop_counts) if blocked_drop_counts else 0.0
         mean_new = sum(new_edge_counts) / len(new_edge_counts) if new_edge_counts else 0.0
         mean_drop = sum(drop_edge_counts) / len(drop_edge_counts) if drop_edge_counts else 0.0
         mean_energy = sum(control_energies) / len(control_energies) if control_energies else 0.0
@@ -619,6 +626,7 @@ class FlowGraphRAG:
             mean_adjustment_term_coupling=mean_term_coupling,
             mean_applied_new_edges=mean_applied_new,
             mean_applied_drop_edges=mean_applied_drop,
+            mean_blocked_drop_edges=mean_blocked_drop,
             mean_suggested_new_edges=mean_new,
             mean_suggested_drop_edges=mean_drop,
             mean_control_energy=mean_energy,

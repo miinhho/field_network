@@ -65,7 +65,7 @@ class DynamicGraphAdjuster:
                 (0.22 * pressure) + (0.10 * instability) - (0.08 * viscosity) - (0.10 * phase_risk)
             )
             if pressure < 0.08:
-                delta -= self.learning_rate * 0.04
+                delta -= self.learning_rate * lr_scale * 0.04
 
             new_weight = self._clip(edge.weight + delta)
             shift = new_weight - edge.weight
@@ -154,11 +154,13 @@ class DynamicGraphAdjuster:
         for edge in graph.interactions:
             src_impact = float(impact_by_actant.get(edge.source_id, 0.0))
             dst_impact = float(impact_by_actant.get(edge.target_id, 0.0))
-            score = edge.weight + 0.2 * (src_impact + dst_impact) + 0.25 * max(0.0, min(1.0, phase_risk))
+            impact_scale = 0.2 + 0.35 * max(0.0, min(1.0, phase_risk))
+            score = edge.weight + impact_scale * (src_impact + dst_impact)
             scored.append((score, (edge.source_id, edge.target_id)))
 
         scored.sort(key=lambda item: item[0])
-        return [edge for _, edge in scored[:max_edges]]
+        limit = max(0, int(round(max_edges * (1.0 - 0.7 * max(0.0, min(1.0, phase_risk))))))
+        return [edge for _, edge in scored[:limit]]
 
     def _node_embedding(
         self,

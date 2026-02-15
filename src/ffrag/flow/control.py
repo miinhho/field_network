@@ -205,6 +205,7 @@ class TopologicalFlowController:
             topological_tension=float(topo.topological_tension),
         )
         self._adapt_gains(objective, residual_ratio, div_before, div_after, energy, sat)
+        self._phase_safety_clamp(phase_signal)
         return TopologicalControlResult(
             node_control=node_control,
             controlled_impact=controlled_impact,

@@ -57,6 +57,7 @@ class AdjustmentTests(unittest.TestCase):
         )
         self.assertLessEqual(abs(risky.mean_weight_shift), abs(base.mean_weight_shift) + 1e-6)
         self.assertLessEqual(len(risky.suggested_new_edges), len(base.suggested_new_edges))
+        self.assertLessEqual(len(risky.suggested_drop_edges), len(base.suggested_drop_edges))
 
 
 if __name__ == "__main__":

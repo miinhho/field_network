@@ -375,19 +375,24 @@ class FlowGraphRAG:
                 final_state,
                 phase_signal=phase_signal,
             )
-            phase_context = self._phase_context_from_cycle(
-                prior_phase=prev_phase_context,
-                attractor_distance=final_distance,
-                objective_score=control.objective_score,
-                topological_tension=control.topological_tension,
+            phase_context = self.phase_analyzer.analyze(
+                trajectory=trajectory,
+                attractor_distances=distance_series,
+                objective_scores=objective_scores + [control.objective_score],
+                topological_tensions=topological_tensions + [control.topological_tension],
             )
+            phase_context_map = {
+                "critical_transition_score": phase_context.critical_transition_score,
+                "early_warning_score": phase_context.early_warning_score,
+                "coherence_break_score": phase_context.coherence_break_score,
+            }
             adjustment = self.adjuster.adjust(
                 current_graph,
                 control.controlled_impact,
                 final_state,
-                phase_context=phase_context,
+                phase_context=phase_context_map,
             )
-            prev_phase_context = phase_context
+            prev_phase_context = phase_context_map
             total_strengthened += adjustment.strengthened_edges
             total_weakened += adjustment.weakened_edges
             mean_shifts.append(adjustment.mean_weight_shift)
@@ -496,26 +501,6 @@ class FlowGraphRAG:
             mean_cross_scale_consistency=mean_consistency,
             mean_micro_refinement_gain=mean_refinement_gain,
         )
-
-    def _phase_context_from_cycle(
-        self,
-        prior_phase: dict[str, float],
-        attractor_distance: float,
-        objective_score: float,
-        topological_tension: float,
-    ) -> dict[str, float]:
-        prev_critical = float(prior_phase.get("critical_transition_score", 0.0))
-        dist_term = max(0.0, min(1.0, attractor_distance))
-        obj_term = max(0.0, min(1.0, objective_score / 3.0))
-        tension_term = max(0.0, min(1.0, topological_tension))
-        critical = max(0.0, min(1.0, 0.45 * prev_critical + 0.25 * dist_term + 0.2 * obj_term + 0.1 * tension_term))
-        warning = max(0.0, min(1.0, 0.6 * critical + 0.4 * tension_term))
-        coherence = max(0.0, min(1.0, abs(dist_term - obj_term)))
-        return {
-            "critical_transition_score": round(critical, 6),
-            "early_warning_score": round(warning, 6),
-            "coherence_break_score": round(coherence, 6),
-        }
 
     def _oscillation_index(self, values: list[float]) -> float:
         if len(values) < 3:

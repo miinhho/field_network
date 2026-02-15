@@ -19,6 +19,7 @@ class GraphAdjustmentResult:
     adjustment_objective_score: float
     selected_adjustment_scale: float
     selected_planner_horizon: int
+    selected_edit_budget: int
     graph_density: float
     impact_noise: float
     coupling_penalty: float
@@ -67,7 +68,7 @@ class DynamicGraphAdjuster:
         coupling = self._control_coupling_penalty(control_context)
         lr_scale = 1.0 - 0.6 * phase_risk
         planner_horizon = self._planner_horizon(density, impact_noise, phase_risk, coupling)
-        plan_scale = self._select_adjustment_scale(
+        plan_scale, plan_budget = self._select_adjustment_plan(
             graph=graph,
             impact_by_actant=impact_by_actant,
             instability=instability,
@@ -137,6 +138,7 @@ class DynamicGraphAdjuster:
             suggested_drop=suggested_drop,
             phase_risk=phase_risk,
             density=density,
+            requested_budget=plan_budget,
         )
         mean_shift = sum(shifts) / len(shifts) if shifts else 0.0
         mean_abs_shift = (sum(abs(v) for v in shifts) / len(shifts)) if shifts else 0.0
@@ -161,6 +163,7 @@ class DynamicGraphAdjuster:
             adjustment_objective_score=round(objective, 6),
             selected_adjustment_scale=round(plan_scale, 6),
             selected_planner_horizon=planner_horizon,
+            selected_edit_budget=plan_budget,
             graph_density=round(density, 6),
             impact_noise=round(impact_noise, 6),
             coupling_penalty=round(coupling, 6),
@@ -320,7 +323,7 @@ class DynamicGraphAdjuster:
         risk_penalty = risk_w * phase_risk
         return churn_w * churn + volatility_w * volatility + rewiring_cost + risk_penalty + coupling_w * coupling_penalty
 
-    def _select_adjustment_scale(
+    def _select_adjustment_plan(
         self,
         graph: LayeredGraph,
         impact_by_actant: dict[str, float],
@@ -332,28 +335,33 @@ class DynamicGraphAdjuster:
         coupling_penalty: float,
         planner_horizon: int,
         lr_scale: float,
-    ) -> float:
-        candidates = self._planner_candidates(density, impact_noise, phase_risk)
+    ) -> tuple[float, int]:
+        scale_candidates = self._planner_candidates(density, impact_noise, phase_risk)
+        budget_candidates = self._planner_budget_candidates(phase_risk, density)
         best_scale = 1.0
+        best_budget = 0
         best_obj = float("inf")
-        for scale in candidates:
-            obj = self._plan_objective_rollout(
-                graph=graph,
-                impact_by_actant=impact_by_actant,
-                instability=instability,
-                viscosity=viscosity,
-                phase_risk=phase_risk,
-                density=density,
-                impact_noise=impact_noise,
-                coupling_penalty=coupling_penalty,
-                lr_scale=lr_scale,
-                scale=scale,
-                horizon=planner_horizon,
-            )
-            if obj < best_obj:
-                best_obj = obj
-                best_scale = scale
-        return best_scale
+        for scale in scale_candidates:
+            for budget in budget_candidates:
+                obj = self._plan_objective_rollout(
+                    graph=graph,
+                    impact_by_actant=impact_by_actant,
+                    instability=instability,
+                    viscosity=viscosity,
+                    phase_risk=phase_risk,
+                    density=density,
+                    impact_noise=impact_noise,
+                    coupling_penalty=coupling_penalty,
+                    lr_scale=lr_scale,
+                    scale=scale,
+                    horizon=planner_horizon,
+                    edit_budget=budget,
+                )
+                if obj < best_obj:
+                    best_obj = obj
+                    best_scale = scale
+                    best_budget = budget
+        return best_scale, best_budget
 
     def _plan_objective_rollout(
         self,
@@ -368,6 +376,7 @@ class DynamicGraphAdjuster:
         lr_scale: float,
         scale: float,
         horizon: int,
+        edit_budget: int,
     ) -> float:
         base_shifts = self._simulate_shifts(
             graph=graph,
@@ -391,6 +400,9 @@ class DynamicGraphAdjuster:
         risk = phase_risk
         for _ in range(max(2, horizon)):
             volatility = max(0.0, inst - viscosity)
+            dynamic_budget = max(0, int(round(edit_budget * discount)))
+            est_new = dynamic_budget // 2
+            est_drop = dynamic_budget - est_new
             step_obj = self._adjustment_objective(
                 mean_abs_shift=mean_abs_shift,
                 instability=inst,
@@ -399,8 +411,8 @@ class DynamicGraphAdjuster:
                 density=density,
                 impact_noise=impact_noise,
                 coupling_penalty=coupling_penalty,
-                new_edge_count=0,
-                drop_edge_count=0,
+                new_edge_count=est_new,
+                drop_edge_count=est_drop,
             )
             step_obj += 0.8 * under_adjust + 0.6 * over_adjust
             total += discount * step_obj
@@ -480,6 +492,16 @@ class DynamicGraphAdjuster:
             return 3
         return 4
 
+    def _planner_budget_candidates(self, phase_risk: float, density: float) -> tuple[int, ...]:
+        if self.max_structural_edits <= 0:
+            return (0,)
+        if phase_risk > 0.8:
+            return (0, 1)
+        upper = max(1, self.max_structural_edits)
+        if density < 0.2:
+            return tuple(sorted(set([0, 1, min(upper, 2), upper])))
+        return tuple(sorted(set([0, 1, min(upper, 2)])))
+
     def _control_coupling_penalty(self, control_context: dict[str, float] | None) -> float:
         if not control_context:
             return 0.0
@@ -497,11 +519,13 @@ class DynamicGraphAdjuster:
         suggested_drop: list[tuple[str, str]],
         phase_risk: float,
         density: float,
+        requested_budget: int,
     ) -> tuple[int, int]:
         if not self.apply_structural_edits or self.max_structural_edits <= 0:
             return 0, 0
         budget_scale = (1.0 - 0.7 * max(0.0, min(1.0, phase_risk))) * (0.8 + 0.4 * max(0.0, min(1.0, density)))
-        budget = max(0, int(round(self.max_structural_edits * budget_scale)))
+        allowed = max(0, int(round(self.max_structural_edits * budget_scale)))
+        budget = max(0, min(int(requested_budget), allowed))
         if budget <= 0:
             return 0, 0
 

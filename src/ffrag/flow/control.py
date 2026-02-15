@@ -83,7 +83,26 @@ class TopologicalFlowController:
     ) -> TopologicalControlResult:
         nodes = list(graph.actants.keys())
         if not nodes or not graph.interactions:
-            return TopologicalControlResult({}, impact_by_actant, 0.0, 0.0, 0.0, 0.0)
+            return TopologicalControlResult(
+                node_control={},
+                controlled_impact=impact_by_actant,
+                control_energy=0.0,
+                residual_ratio=0.0,
+                divergence_norm_before=0.0,
+                divergence_norm_after=0.0,
+                saturation_ratio=0.0,
+                cycle_pressure_mean=0.0,
+                higher_order_pressure_mean=0.0,
+                gain_k_div=float(self.k_div),
+                gain_residual_damping=float(self.residual_damping),
+                gain_k_higher=float(self.k_higher),
+                objective_score=0.0,
+                gradient_norm=0.0,
+                curl_norm=0.0,
+                harmonic_norm=0.0,
+                curl_ratio=0.0,
+                harmonic_ratio=0.0,
+            )
 
         node_index = {node: i for i, node in enumerate(nodes)}
         edges = [(edge.source_id, edge.target_id, edge.weight) for edge in graph.interactions]

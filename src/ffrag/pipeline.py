@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from .compose import compose_answer
 from .flow import (
+    ClusterFlowController,
     DynamicGraphAdjuster,
     FlowAnalyzerConfig,
     FlowDynamicsAnalyzer,
@@ -42,6 +43,9 @@ class _CoreCycleSummary:
     mean_curl_ratio: float
     mean_harmonic_ratio: float
     mean_higher_order_pressure: float
+    mean_cluster_objective: float
+    mean_cross_scale_consistency: float
+    mean_micro_refinement_gain: float
 
 
 class FlowGraphRAG:
@@ -56,6 +60,7 @@ class FlowGraphRAG:
         self.analyzer = FlowDynamicsAnalyzer(config=analyzer_config)
         self.adjuster = DynamicGraphAdjuster()
         self.controller = TopologicalFlowController()
+        self.cluster_controller = ClusterFlowController()
 
     def run(self, graph: LayeredGraph, query: Query, perturbation: Perturbation | None = None) -> Answer:
         query_type = self.router.classify(query)
@@ -140,6 +145,9 @@ class FlowGraphRAG:
             "curl_ratio": float(cycle.mean_curl_ratio),
             "harmonic_ratio": float(cycle.mean_harmonic_ratio),
             "higher_order_pressure": float(cycle.mean_higher_order_pressure),
+            "cluster_objective": float(cycle.mean_cluster_objective),
+            "cross_scale_consistency": float(cycle.mean_cross_scale_consistency),
+            "micro_refinement_gain": float(cycle.mean_micro_refinement_gain),
         }
         evidence_ids = [f"perturbation:{p.perturbation_id}"]
         return compose_answer("predict", claims, evidence_ids, metrics, uncertainty=0.35)
@@ -212,6 +220,12 @@ class FlowGraphRAG:
             "intervention_harmonic_ratio": float(intervention_cycle.mean_harmonic_ratio),
             "baseline_higher_order_pressure": float(baseline_cycle.mean_higher_order_pressure),
             "intervention_higher_order_pressure": float(intervention_cycle.mean_higher_order_pressure),
+            "baseline_cluster_objective": float(baseline_cycle.mean_cluster_objective),
+            "intervention_cluster_objective": float(intervention_cycle.mean_cluster_objective),
+            "baseline_cross_scale_consistency": float(baseline_cycle.mean_cross_scale_consistency),
+            "intervention_cross_scale_consistency": float(intervention_cycle.mean_cross_scale_consistency),
+            "baseline_micro_refinement_gain": float(baseline_cycle.mean_micro_refinement_gain),
+            "intervention_micro_refinement_gain": float(intervention_cycle.mean_micro_refinement_gain),
         }
         evidence_ids = [f"perturbation:{p.perturbation_id}"]
         return compose_answer("intervene", claims, evidence_ids, metrics, uncertainty=0.4)
@@ -292,6 +306,9 @@ class FlowGraphRAG:
         curl_ratios: list[float] = []
         harmonic_ratios: list[float] = []
         higher_pressures: list[float] = []
+        cluster_objectives: list[float] = []
+        cross_scale_consistency: list[float] = []
+        micro_refinement_gain: list[float] = []
         converged = False
         stable_streak = 0
         last_impact: dict[str, float] = {}
@@ -309,7 +326,8 @@ class FlowGraphRAG:
             trajectory.append(final_state)
             distance_series.append(final_distance)
 
-            control = self.controller.compute(current_graph, propagation.impact_by_actant, final_state)
+            cluster_plan = self.cluster_controller.plan(current_graph, propagation.impact_by_actant, final_state)
+            control = self.controller.compute(current_graph, cluster_plan.coarse_controlled_impact, final_state)
             adjustment = self.adjuster.adjust(current_graph, control.controlled_impact, final_state)
             total_strengthened += adjustment.strengthened_edges
             total_weakened += adjustment.weakened_edges
@@ -325,6 +343,9 @@ class FlowGraphRAG:
             curl_ratios.append(control.curl_ratio)
             harmonic_ratios.append(control.harmonic_ratio)
             higher_pressures.append(control.higher_order_pressure_mean)
+            cluster_objectives.append(cluster_plan.cluster_objective)
+            cross_scale_consistency.append(cluster_plan.cross_scale_consistency)
+            micro_refinement_gain.append(max(0.0, cluster_plan.cluster_objective - control.objective_score))
             current_graph = adjustment.adjusted_graph
 
             if len(distance_series) >= 2:
@@ -352,6 +373,13 @@ class FlowGraphRAG:
         mean_curl_ratio = sum(curl_ratios) / len(curl_ratios) if curl_ratios else 0.0
         mean_harmonic_ratio = sum(harmonic_ratios) / len(harmonic_ratios) if harmonic_ratios else 0.0
         mean_higher_pressure = sum(higher_pressures) / len(higher_pressures) if higher_pressures else 0.0
+        mean_cluster_obj = sum(cluster_objectives) / len(cluster_objectives) if cluster_objectives else 0.0
+        mean_consistency = (
+            sum(cross_scale_consistency) / len(cross_scale_consistency) if cross_scale_consistency else 0.0
+        )
+        mean_refinement_gain = (
+            sum(micro_refinement_gain) / len(micro_refinement_gain) if micro_refinement_gain else 0.0
+        )
         objective_improvement = (
             (objective_scores[0] - objective_scores[-1]) if len(objective_scores) >= 2 else 0.0
         )
@@ -382,6 +410,9 @@ class FlowGraphRAG:
             mean_curl_ratio=mean_curl_ratio,
             mean_harmonic_ratio=mean_harmonic_ratio,
             mean_higher_order_pressure=mean_higher_pressure,
+            mean_cluster_objective=mean_cluster_obj,
+            mean_cross_scale_consistency=mean_consistency,
+            mean_micro_refinement_gain=mean_refinement_gain,
         )
 
     def _oscillation_index(self, values: list[float]) -> float:

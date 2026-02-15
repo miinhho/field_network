@@ -4,6 +4,7 @@ from .dynamics import FlowFieldDynamics, DynamicsResult, DynamicsSnapshot
 from .analysis import FlowAnalyzerConfig, FlowDynamicsAnalyzer, ResilienceAnalysis, TransitionAnalysis
 from .adjustment import DynamicGraphAdjuster, GraphAdjustmentResult
 from .control import TopologicalFlowController, TopologicalControlResult
+from .multiscale import ClusterFlowController, ClusterPlanResult
 
 __all__ = [
     "StateVectorBuilder",
@@ -19,4 +20,6 @@ __all__ = [
     "GraphAdjustmentResult",
     "TopologicalFlowController",
     "TopologicalControlResult",
+    "ClusterFlowController",
+    "ClusterPlanResult",
 ]

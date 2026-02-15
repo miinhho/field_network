@@ -152,6 +152,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Closed-loop stability monitoring (saturation ratio, oscillation index, convergence gate in core cycle)
   - Objective-aware control adaptation (objective score tracked and used for gain updates/convergence)
   - Topological rigor upgrade with Hodge-like decomposition metrics (`gradient/curl/harmonic` ratios)
+  - Higher-order topology signal integrated (`higher_order_pressure` from 4-cycle style loop density)
   - Predict/intervene integration with dynamics snapshots
   - Transition/resilience analysis (`transition_matrix`, `recovery_rate`, `hysteresis_index`)
   - Basin/trigger and recovery-path metrics (`overshoot`, `settling_time`, `path_efficiency`)
@@ -195,3 +196,4 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added convergence gate and oscillation/saturation stability metrics to co-evolution loop.
 - 2026-02-15: Added objective-aware gain adaptation and objective-based convergence checks.
 - 2026-02-15: Added Hodge-like decomposition metrics (gradient/curl/harmonic) to topological control outputs.
+- 2026-02-15: Added higher-order pressure metric and control term from 4-cycle style topology signal.

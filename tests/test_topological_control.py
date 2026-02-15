@@ -48,6 +48,8 @@ class TopologicalControlTests(unittest.TestCase):
         self.assertGreaterEqual(out.harmonic_norm, 0.0)
         self.assertGreaterEqual(out.curl_ratio, 0.0)
         self.assertGreaterEqual(out.harmonic_ratio, 0.0)
+        self.assertGreaterEqual(out.higher_order_pressure_mean, 0.0)
+        self.assertGreaterEqual(out.gain_k_higher, 0.02)
 
 
 if __name__ == "__main__":

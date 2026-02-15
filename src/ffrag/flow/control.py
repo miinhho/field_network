@@ -17,8 +17,10 @@ class TopologicalControlResult:
     divergence_norm_after: float
     saturation_ratio: float
     cycle_pressure_mean: float
+    higher_order_pressure_mean: float
     gain_k_div: float
     gain_residual_damping: float
+    gain_k_higher: float
     objective_score: float
     gradient_norm: float
     curl_norm: float
@@ -45,6 +47,7 @@ class TopologicalFlowController:
         k_cycle: float = 0.12,
         k_curl: float = 0.18,
         k_harmonic: float = 0.16,
+        k_higher: float = 0.1,
         target_speed: float = 0.45,
         residual_damping: float = 0.5,
         control_clip: float = 1.0,
@@ -58,6 +61,7 @@ class TopologicalFlowController:
         self.k_cycle = k_cycle
         self.k_curl = k_curl
         self.k_harmonic = k_harmonic
+        self.k_higher = k_higher
         self.target_speed = target_speed
         self.residual_damping = residual_damping
         self.control_clip = control_clip
@@ -66,6 +70,7 @@ class TopologicalFlowController:
         self.objective_step_residual = objective_step_residual
         self._k_div_bounds = (0.1, 1.2)
         self._residual_bounds = (0.2, 0.9)
+        self._k_higher_bounds = (0.02, 0.6)
         self._prev_objective: float | None = None
         self._direction_k_div: float = 1.0
         self._direction_residual: float = 1.0
@@ -98,6 +103,7 @@ class TopologicalFlowController:
 
         speed_term = float(state.get("transition_speed", 0.0)) - self.target_speed
         cycle_pressure = self._cycle_pressure(nodes, edges, node_index, impact_by_actant)
+        higher_pressure = self._higher_order_pressure(nodes, edges, node_index, impact_by_actant)
         curl_pressure = self._curl_pressure(C, curl_flow, len(nodes), edges, node_index)
         harmonic_pressure = self._harmonic_pressure(harmonic, len(nodes), edges, node_index)
         u = (
@@ -105,6 +111,7 @@ class TopologicalFlowController:
             - self.k_phi * phi
             - self.k_speed * speed_term
             - self.k_cycle * cycle_pressure
+            - self.k_higher * higher_pressure
             - self.k_curl * curl_pressure
             - self.k_harmonic * harmonic_pressure
         )
@@ -119,6 +126,7 @@ class TopologicalFlowController:
         energy = float(np.sum(u * u))
         sat = float(np.mean(np.abs(u) >= (0.98 * self.control_clip)))
         cycle_pressure_mean = float(np.mean(np.abs(cycle_pressure))) if cycle_pressure.size else 0.0
+        higher_pressure_mean = float(np.mean(np.abs(higher_pressure))) if higher_pressure.size else 0.0
         grad_norm = float(np.linalg.norm(gradient_flow))
         curl_norm = float(np.linalg.norm(curl_flow))
         harmonic_norm = float(np.linalg.norm(harmonic))
@@ -133,6 +141,7 @@ class TopologicalFlowController:
             cycle_pressure=cycle_pressure_mean,
             curl_ratio=curl_ratio,
             harmonic_ratio=harmonic_ratio,
+            higher_pressure=higher_pressure_mean,
         )
         self._adapt_gains(objective, residual_ratio, div_before, div_after, energy, sat)
         return TopologicalControlResult(
@@ -144,8 +153,10 @@ class TopologicalFlowController:
             divergence_norm_after=round(float(np.linalg.norm(div_after)), 6),
             saturation_ratio=round(sat, 6),
             cycle_pressure_mean=round(cycle_pressure_mean, 6),
+            higher_order_pressure_mean=round(higher_pressure_mean, 6),
             gain_k_div=round(self.k_div, 6),
             gain_residual_damping=round(self.residual_damping, 6),
+            gain_k_higher=round(self.k_higher, 6),
             objective_score=round(objective, 6),
             gradient_norm=round(grad_norm, 6),
             curl_norm=round(curl_norm, 6),
@@ -178,16 +189,20 @@ class TopologicalFlowController:
         if residual_ratio > 0.45 or not improved:
             self.k_div = min(self._k_div_bounds[1], self.k_div * 1.03)
             self.residual_damping = min(self._residual_bounds[1], self.residual_damping * 1.02)
+            self.k_higher = min(self._k_higher_bounds[1], self.k_higher * 1.01)
         else:
             self.k_div = max(self._k_div_bounds[0], self.k_div * 0.995)
             self.residual_damping = max(self._residual_bounds[0], self.residual_damping * 0.995)
+            self.k_higher = max(self._k_higher_bounds[0], self.k_higher * 0.997)
 
         if control_energy > 2.5 or saturation_ratio > 0.35:
             self.k_div = max(self._k_div_bounds[0], self.k_div * 0.97)
             self.residual_damping = max(self._residual_bounds[0], self.residual_damping * 0.985)
+            self.k_higher = max(self._k_higher_bounds[0], self.k_higher * 0.985)
 
         self.k_div = min(self._k_div_bounds[1], max(self._k_div_bounds[0], self.k_div))
         self.residual_damping = min(self._residual_bounds[1], max(self._residual_bounds[0], self.residual_damping))
+        self.k_higher = min(self._k_higher_bounds[1], max(self._k_higher_bounds[0], self.k_higher))
         self._prev_objective = objective
 
     def _objective(
@@ -199,6 +214,7 @@ class TopologicalFlowController:
         cycle_pressure: float,
         curl_ratio: float,
         harmonic_ratio: float,
+        higher_pressure: float,
     ) -> float:
         w_div, w_res, w_energy, w_sat, w_cycle = self.objective_weights
         return (
@@ -209,6 +225,7 @@ class TopologicalFlowController:
             + w_cycle * cycle_pressure
             + 0.45 * curl_ratio
             + 0.35 * harmonic_ratio
+            + 0.25 * higher_pressure
         )
 
     def _cycle_pressure(
@@ -242,6 +259,45 @@ class TopologicalFlowController:
             loop_density = tri / total
             pressure[node_index[node]] = loop_density * float(impact_by_actant.get(node, 0.0))
         return pressure
+
+    def _higher_order_pressure(
+        self,
+        nodes: list[str],
+        edges: list[tuple[str, str, float]],
+        node_index: dict[str, int],
+        impact_by_actant: dict[str, float],
+    ) -> np.ndarray:
+        adjacency: dict[str, set[str]] = {node: set() for node in nodes}
+        for src, dst, _ in edges:
+            if src == dst:
+                continue
+            adjacency.setdefault(src, set()).add(dst)
+            adjacency.setdefault(dst, set()).add(src)
+
+        pressure = np.zeros((len(nodes),), dtype=np.float64)
+        for node in nodes:
+            neigh = list(adjacency.get(node, set()))
+            if len(neigh) < 3:
+                continue
+            cycle4 = 0
+            total = 0
+            for a in neigh:
+                for b in adjacency.get(a, set()):
+                    if b in (node, a):
+                        continue
+                    for c in adjacency.get(b, set()):
+                        if c in (node, a, b):
+                            continue
+                        total += 1
+                        if node in adjacency.get(c, set()):
+                            cycle4 += 1
+            if total == 0:
+                continue
+            density4 = cycle4 / total
+            pressure[node_index[node]] = density4 * float(impact_by_actant.get(node, 0.0))
+        if np.max(pressure) <= 1e-9:
+            return pressure
+        return pressure / np.max(pressure)
 
     def _incidence(self, nodes: list[str], edges: list[tuple[str, str, float]], idx: dict[str, int]) -> np.ndarray:
         B = np.zeros((len(nodes), len(edges)), dtype=np.float64)

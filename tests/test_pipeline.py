@@ -94,6 +94,10 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("saturation_ratio", answer.metrics_used)
         self.assertIn("oscillation_index", answer.metrics_used)
         self.assertIn("cycles_executed", answer.metrics_used)
+        self.assertIn("objective_score", answer.metrics_used)
+        self.assertIn("objective_improvement", answer.metrics_used)
+        self.assertIn("curl_ratio", answer.metrics_used)
+        self.assertIn("harmonic_ratio", answer.metrics_used)
 
     def test_intervene_route_returns_rewiring_metric(self) -> None:
         answer = self.rag.run(self.graph, Query(text="intervene to reduce risk"))
@@ -114,6 +118,10 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("intervention_control_energy", answer.metrics_used)
         self.assertIn("baseline_oscillation_index", answer.metrics_used)
         self.assertIn("intervention_oscillation_index", answer.metrics_used)
+        self.assertIn("baseline_objective_score", answer.metrics_used)
+        self.assertIn("intervention_objective_score", answer.metrics_used)
+        self.assertIn("baseline_curl_ratio", answer.metrics_used)
+        self.assertIn("intervention_curl_ratio", answer.metrics_used)
 
     def test_guardrail_blocks_subjective_inference(self) -> None:
         answer = self.rag.run(self.graph, Query(text="describe"))

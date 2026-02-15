@@ -42,6 +42,12 @@ class TopologicalControlTests(unittest.TestCase):
         self.assertGreaterEqual(out.saturation_ratio, 0.0)
         self.assertLessEqual(out.saturation_ratio, 1.0)
         self.assertGreaterEqual(out.gain_k_div, 0.1)
+        self.assertGreaterEqual(out.objective_score, 0.0)
+        self.assertGreaterEqual(out.gradient_norm, 0.0)
+        self.assertGreaterEqual(out.curl_norm, 0.0)
+        self.assertGreaterEqual(out.harmonic_norm, 0.0)
+        self.assertGreaterEqual(out.curl_ratio, 0.0)
+        self.assertGreaterEqual(out.harmonic_ratio, 0.0)
 
 
 if __name__ == "__main__":

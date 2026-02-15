@@ -19,6 +19,12 @@ class TopologicalControlResult:
     cycle_pressure_mean: float
     gain_k_div: float
     gain_residual_damping: float
+    objective_score: float
+    gradient_norm: float
+    curl_norm: float
+    harmonic_norm: float
+    curl_ratio: float
+    harmonic_ratio: float
 
 
 class TopologicalFlowController:
@@ -37,19 +43,32 @@ class TopologicalFlowController:
         k_phi: float = 0.15,
         k_speed: float = 0.2,
         k_cycle: float = 0.12,
+        k_curl: float = 0.18,
+        k_harmonic: float = 0.16,
         target_speed: float = 0.45,
         residual_damping: float = 0.5,
         control_clip: float = 1.0,
+        objective_weights: tuple[float, float, float, float, float] = (1.0, 0.6, 0.25, 0.35, 0.2),
+        objective_step_k_div: float = 0.02,
+        objective_step_residual: float = 0.015,
     ) -> None:
         self.k_div = k_div
         self.k_phi = k_phi
         self.k_speed = k_speed
         self.k_cycle = k_cycle
+        self.k_curl = k_curl
+        self.k_harmonic = k_harmonic
         self.target_speed = target_speed
         self.residual_damping = residual_damping
         self.control_clip = control_clip
+        self.objective_weights = objective_weights
+        self.objective_step_k_div = objective_step_k_div
+        self.objective_step_residual = objective_step_residual
         self._k_div_bounds = (0.1, 1.2)
         self._residual_bounds = (0.2, 0.9)
+        self._prev_objective: float | None = None
+        self._direction_k_div: float = 1.0
+        self._direction_residual: float = 1.0
 
     def compute(
         self,
@@ -70,13 +89,25 @@ class TopologicalFlowController:
         div_before = B @ f
         phi = self._solve_potential(B, div_before)
         gradient_flow = B.T @ phi
-        residual = f - gradient_flow
-        f_controlled = f - self.residual_damping * residual
+        C = self._cycle_matrix(nodes, edges, node_index)
+        curl_flow = self._solve_curl_component(C, f - gradient_flow)
+        harmonic = f - gradient_flow - curl_flow
+        residual = curl_flow + harmonic
+        f_controlled = f - self.residual_damping * residual - self.k_harmonic * harmonic
         div_after = B @ f_controlled
 
         speed_term = float(state.get("transition_speed", 0.0)) - self.target_speed
         cycle_pressure = self._cycle_pressure(nodes, edges, node_index, impact_by_actant)
-        u = -self.k_div * div_before - self.k_phi * phi - self.k_speed * speed_term - self.k_cycle * cycle_pressure
+        curl_pressure = self._curl_pressure(C, curl_flow, len(nodes), edges, node_index)
+        harmonic_pressure = self._harmonic_pressure(harmonic, len(nodes), edges, node_index)
+        u = (
+            -self.k_div * div_before
+            - self.k_phi * phi
+            - self.k_speed * speed_term
+            - self.k_cycle * cycle_pressure
+            - self.k_curl * curl_pressure
+            - self.k_harmonic * harmonic_pressure
+        )
         u = np.clip(u, -self.control_clip, self.control_clip)
 
         node_control = {node: float(round(u[node_index[node]], 6)) for node in nodes}
@@ -88,7 +119,22 @@ class TopologicalFlowController:
         energy = float(np.sum(u * u))
         sat = float(np.mean(np.abs(u) >= (0.98 * self.control_clip)))
         cycle_pressure_mean = float(np.mean(np.abs(cycle_pressure))) if cycle_pressure.size else 0.0
-        self._adapt_gains(residual_ratio, div_before, div_after, energy, sat)
+        grad_norm = float(np.linalg.norm(gradient_flow))
+        curl_norm = float(np.linalg.norm(curl_flow))
+        harmonic_norm = float(np.linalg.norm(harmonic))
+        flow_norm = float(np.linalg.norm(f) + 1e-9)
+        curl_ratio = curl_norm / flow_norm
+        harmonic_ratio = harmonic_norm / flow_norm
+        objective = self._objective(
+            div_after=float(np.linalg.norm(div_after)),
+            residual_ratio=residual_ratio,
+            control_energy=energy,
+            saturation_ratio=sat,
+            cycle_pressure=cycle_pressure_mean,
+            curl_ratio=curl_ratio,
+            harmonic_ratio=harmonic_ratio,
+        )
+        self._adapt_gains(objective, residual_ratio, div_before, div_after, energy, sat)
         return TopologicalControlResult(
             node_control=node_control,
             controlled_impact=controlled_impact,
@@ -100,10 +146,17 @@ class TopologicalFlowController:
             cycle_pressure_mean=round(cycle_pressure_mean, 6),
             gain_k_div=round(self.k_div, 6),
             gain_residual_damping=round(self.residual_damping, 6),
+            objective_score=round(objective, 6),
+            gradient_norm=round(grad_norm, 6),
+            curl_norm=round(curl_norm, 6),
+            harmonic_norm=round(harmonic_norm, 6),
+            curl_ratio=round(curl_ratio, 6),
+            harmonic_ratio=round(harmonic_ratio, 6),
         )
 
     def _adapt_gains(
         self,
+        objective: float,
         residual_ratio: float,
         div_before: np.ndarray,
         div_after: np.ndarray,
@@ -114,9 +167,17 @@ class TopologicalFlowController:
         after = float(np.linalg.norm(div_after))
         improved = after < before * 0.97
 
+        if self._prev_objective is not None:
+            objective_improved = objective < self._prev_objective
+            if not objective_improved:
+                self._direction_k_div *= -1.0
+                self._direction_residual *= -1.0
+            self.k_div += self._direction_k_div * self.objective_step_k_div
+            self.residual_damping += self._direction_residual * self.objective_step_residual
+
         if residual_ratio > 0.45 or not improved:
-            self.k_div = min(self._k_div_bounds[1], self.k_div * 1.06)
-            self.residual_damping = min(self._residual_bounds[1], self.residual_damping * 1.04)
+            self.k_div = min(self._k_div_bounds[1], self.k_div * 1.03)
+            self.residual_damping = min(self._residual_bounds[1], self.residual_damping * 1.02)
         else:
             self.k_div = max(self._k_div_bounds[0], self.k_div * 0.995)
             self.residual_damping = max(self._residual_bounds[0], self.residual_damping * 0.995)
@@ -124,6 +185,31 @@ class TopologicalFlowController:
         if control_energy > 2.5 or saturation_ratio > 0.35:
             self.k_div = max(self._k_div_bounds[0], self.k_div * 0.97)
             self.residual_damping = max(self._residual_bounds[0], self.residual_damping * 0.985)
+
+        self.k_div = min(self._k_div_bounds[1], max(self._k_div_bounds[0], self.k_div))
+        self.residual_damping = min(self._residual_bounds[1], max(self._residual_bounds[0], self.residual_damping))
+        self._prev_objective = objective
+
+    def _objective(
+        self,
+        div_after: float,
+        residual_ratio: float,
+        control_energy: float,
+        saturation_ratio: float,
+        cycle_pressure: float,
+        curl_ratio: float,
+        harmonic_ratio: float,
+    ) -> float:
+        w_div, w_res, w_energy, w_sat, w_cycle = self.objective_weights
+        return (
+            w_div * div_after
+            + w_res * residual_ratio
+            + w_energy * control_energy
+            + w_sat * saturation_ratio
+            + w_cycle * cycle_pressure
+            + 0.45 * curl_ratio
+            + 0.35 * harmonic_ratio
+        )
 
     def _cycle_pressure(
         self,
@@ -189,3 +275,130 @@ class TopologicalFlowController:
 
         eps = 1e-6
         return np.linalg.solve(L + eps * np.eye(L.shape[0]), b)
+
+    def _cycle_matrix(
+        self,
+        nodes: list[str],
+        edges: list[tuple[str, str, float]],
+        node_index: dict[str, int],
+    ) -> np.ndarray:
+        if not edges:
+            return np.zeros((0, 0), dtype=np.float64)
+        undirected_edges = [(src, dst) for src, dst, _ in edges]
+        edge_idx = {tuple(sorted((src, dst))): i for i, (src, dst) in enumerate(undirected_edges)}
+        adjacency: dict[str, set[str]] = {n: set() for n in nodes}
+        for src, dst in undirected_edges:
+            adjacency.setdefault(src, set()).add(dst)
+            adjacency.setdefault(dst, set()).add(src)
+
+        cycles: list[list[str]] = []
+        visited: set[str] = set()
+        for root in nodes:
+            if root in visited:
+                continue
+            parent = {root: None}
+            stack = [root]
+            while stack:
+                u = stack.pop()
+                visited.add(u)
+                for v in adjacency.get(u, set()):
+                    if parent.get(u) == v:
+                        continue
+                    if v not in parent:
+                        parent[v] = u
+                        stack.append(v)
+                    else:
+                        cycle = self._extract_cycle(u, v, parent)
+                        if len(cycle) >= 3:
+                            cycles.append(cycle)
+
+        if not cycles:
+            return np.zeros((0, len(edges)), dtype=np.float64)
+
+        C = np.zeros((len(cycles), len(edges)), dtype=np.float64)
+        for i, cycle in enumerate(cycles):
+            for j in range(len(cycle)):
+                a = cycle[j]
+                b = cycle[(j + 1) % len(cycle)]
+                key = tuple(sorted((a, b)))
+                eidx = edge_idx.get(key)
+                if eidx is None:
+                    continue
+                src, dst, _ = edges[eidx]
+                C[i, eidx] = 1.0 if (a == src and b == dst) else -1.0
+        return C
+
+    def _extract_cycle(self, u: str, v: str, parent: dict[str, str | None]) -> list[str]:
+        path_u = []
+        x = u
+        while x is not None:
+            path_u.append(x)
+            x = parent.get(x)
+        path_v = []
+        y = v
+        while y is not None:
+            path_v.append(y)
+            y = parent.get(y)
+        set_u = set(path_u)
+        lca = next((node for node in path_v if node in set_u), None)
+        if lca is None:
+            return []
+        cycle = []
+        x = u
+        while x != lca and x is not None:
+            cycle.append(x)
+            x = parent.get(x)
+        cycle.append(lca)
+        rev = []
+        y = v
+        while y != lca and y is not None:
+            rev.append(y)
+            y = parent.get(y)
+        cycle.extend(reversed(rev))
+        if len(cycle) != len(set(cycle)):
+            return []
+        return cycle
+
+    def _solve_curl_component(self, C: np.ndarray, residual: np.ndarray) -> np.ndarray:
+        if C.size == 0:
+            return np.zeros_like(residual)
+        M = C @ C.T
+        b = C @ residual
+        eps = 1e-6
+        psi = np.linalg.solve(M + eps * np.eye(M.shape[0]), b)
+        return C.T @ psi
+
+    def _curl_pressure(
+        self,
+        C: np.ndarray,
+        curl_flow: np.ndarray,
+        num_nodes: int,
+        edges: list[tuple[str, str, float]],
+        node_index: dict[str, int],
+    ) -> np.ndarray:
+        pressure = np.zeros((num_nodes,), dtype=np.float64)
+        if C.size == 0 or curl_flow.size == 0:
+            return pressure
+        edge_abs = np.abs(curl_flow)
+        for j, (src, dst, _) in enumerate(edges):
+            val = edge_abs[j]
+            pressure[node_index[src]] += val
+            pressure[node_index[dst]] += val
+        return pressure / max(1.0, np.max(pressure))
+
+    def _harmonic_pressure(
+        self,
+        harmonic: np.ndarray,
+        num_nodes: int,
+        edges: list[tuple[str, str, float]],
+        node_index: dict[str, int],
+    ) -> np.ndarray:
+        pressure = np.zeros((num_nodes,), dtype=np.float64)
+        if harmonic.size == 0:
+            return pressure
+        edge_abs = np.abs(harmonic)
+        for j, (src, dst, _) in enumerate(edges):
+            val = edge_abs[j]
+            pressure[node_index[src]] += val
+            pressure[node_index[dst]] += val
+        return pressure / max(1.0, np.max(pressure))

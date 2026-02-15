@@ -37,6 +37,10 @@ class _CoreCycleSummary:
     oscillation_index: float
     converged: bool
     cycles_executed: int
+    mean_objective_score: float
+    objective_improvement: float
+    mean_curl_ratio: float
+    mean_harmonic_ratio: float
 
 
 class FlowGraphRAG:
@@ -130,6 +134,10 @@ class FlowGraphRAG:
             "oscillation_index": float(cycle.oscillation_index),
             "converged": 1.0 if cycle.converged else 0.0,
             "cycles_executed": float(cycle.cycles_executed),
+            "objective_score": float(cycle.mean_objective_score),
+            "objective_improvement": float(cycle.objective_improvement),
+            "curl_ratio": float(cycle.mean_curl_ratio),
+            "harmonic_ratio": float(cycle.mean_harmonic_ratio),
         }
         evidence_ids = [f"perturbation:{p.perturbation_id}"]
         return compose_answer("predict", claims, evidence_ids, metrics, uncertainty=0.35)
@@ -194,6 +202,12 @@ class FlowGraphRAG:
             "intervention_oscillation_index": float(intervention_cycle.oscillation_index),
             "baseline_converged": 1.0 if baseline_cycle.converged else 0.0,
             "intervention_converged": 1.0 if intervention_cycle.converged else 0.0,
+            "baseline_objective_score": float(baseline_cycle.mean_objective_score),
+            "intervention_objective_score": float(intervention_cycle.mean_objective_score),
+            "baseline_curl_ratio": float(baseline_cycle.mean_curl_ratio),
+            "intervention_curl_ratio": float(intervention_cycle.mean_curl_ratio),
+            "baseline_harmonic_ratio": float(baseline_cycle.mean_harmonic_ratio),
+            "intervention_harmonic_ratio": float(intervention_cycle.mean_harmonic_ratio),
         }
         evidence_ids = [f"perturbation:{p.perturbation_id}"]
         return compose_answer("intervene", claims, evidence_ids, metrics, uncertainty=0.4)
@@ -270,6 +284,9 @@ class FlowGraphRAG:
         divergence_reductions: list[float] = []
         saturation_ratios: list[float] = []
         cycle_pressures: list[float] = []
+        objective_scores: list[float] = []
+        curl_ratios: list[float] = []
+        harmonic_ratios: list[float] = []
         converged = False
         stable_streak = 0
         last_impact: dict[str, float] = {}
@@ -299,6 +316,9 @@ class FlowGraphRAG:
             divergence_reductions.append(max(0.0, control.divergence_norm_before - control.divergence_norm_after))
             saturation_ratios.append(control.saturation_ratio)
             cycle_pressures.append(control.cycle_pressure_mean)
+            objective_scores.append(control.objective_score)
+            curl_ratios.append(control.curl_ratio)
+            harmonic_ratios.append(control.harmonic_ratio)
             current_graph = adjustment.adjusted_graph
 
             if len(distance_series) >= 2:
@@ -306,7 +326,8 @@ class FlowGraphRAG:
                 stable_dist = dist_delta < 0.015
                 stable_div = control.divergence_norm_after <= max(0.12, 0.8 * control.divergence_norm_before)
                 stable_shift = abs(adjustment.mean_weight_shift) < 0.02
-                if stable_dist and stable_div and stable_shift:
+                objective_flat = self._objective_flat(objective_scores, window=2, tol=0.01)
+                if stable_dist and stable_div and stable_shift and objective_flat:
                     stable_streak += 1
                 else:
                     stable_streak = 0
@@ -321,6 +342,12 @@ class FlowGraphRAG:
         mean_residual = sum(residual_ratios) / len(residual_ratios) if residual_ratios else 0.0
         mean_sat = sum(saturation_ratios) / len(saturation_ratios) if saturation_ratios else 0.0
         mean_cycle_pressure = sum(cycle_pressures) / len(cycle_pressures) if cycle_pressures else 0.0
+        mean_objective = sum(objective_scores) / len(objective_scores) if objective_scores else 0.0
+        mean_curl_ratio = sum(curl_ratios) / len(curl_ratios) if curl_ratios else 0.0
+        mean_harmonic_ratio = sum(harmonic_ratios) / len(harmonic_ratios) if harmonic_ratios else 0.0
+        objective_improvement = (
+            (objective_scores[0] - objective_scores[-1]) if len(objective_scores) >= 2 else 0.0
+        )
         mean_div_reduction = (
             sum(divergence_reductions) / len(divergence_reductions) if divergence_reductions else 0.0
         )
@@ -343,6 +370,10 @@ class FlowGraphRAG:
             oscillation_index=oscillation_index,
             converged=converged,
             cycles_executed=len(distance_series),
+            mean_objective_score=mean_objective,
+            objective_improvement=objective_improvement,
+            mean_curl_ratio=mean_curl_ratio,
+            mean_harmonic_ratio=mean_harmonic_ratio,
         )
 
     def _oscillation_index(self, values: list[float]) -> float:
@@ -358,3 +389,10 @@ class FlowGraphRAG:
             if sign != 0:
                 prev_sign = sign
         return sign_changes / max(1, len(values) - 2)
+
+    def _objective_flat(self, scores: list[float], window: int, tol: float) -> bool:
+        if len(scores) < window + 1:
+            return False
+        recent = scores[-(window + 1) :]
+        diffs = [abs(recent[i + 1] - recent[i]) for i in range(len(recent) - 1)]
+        return all(d <= tol for d in diffs)

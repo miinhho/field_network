@@ -150,6 +150,8 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Topology-inspired controller upgrade (cycle-pressure term from triangle loop density)
   - Vector-search-inspired rewiring upgrade (cosine similarity over node embeddings + bridge score ranking)
   - Closed-loop stability monitoring (saturation ratio, oscillation index, convergence gate in core cycle)
+  - Objective-aware control adaptation (objective score tracked and used for gain updates/convergence)
+  - Topological rigor upgrade with Hodge-like decomposition metrics (`gradient/curl/harmonic` ratios)
   - Predict/intervene integration with dynamics snapshots
   - Transition/resilience analysis (`transition_matrix`, `recovery_rate`, `hysteresis_index`)
   - Basin/trigger and recovery-path metrics (`overshoot`, `settling_time`, `path_efficiency`)
@@ -162,7 +164,8 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Basin boundary calibration against domain data (current boundary uses centroid + std radius)
   - Domain-specific trigger thresholds (currently global constants)
   - Dynamic graph adjustment policy learning/calibration from real outcomes
-  - Closed-loop control objective optimization with explicit loss minimization (currently heuristic gain adaptation)
+  - Stronger control optimization (current objective adaptation is local heuristic, not global optimizer)
+  - More rigorous high-order topology modeling (cell/simplicial complex level, currently graph-cycle approximation)
   - Evaluation protocol redesign for dynamics validity (non-leaky ground truth)
   - Real GraphRAG generation path (current baseline remains retrieval-heavy)
 
@@ -190,3 +193,5 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added node-level topological flow controller and control-energy/residual metrics.
 - 2026-02-15: Upgraded core algorithms with adaptive RK2 dynamics, cycle-pressure control, and vector-similarity rewiring.
 - 2026-02-15: Added convergence gate and oscillation/saturation stability metrics to co-evolution loop.
+- 2026-02-15: Added objective-aware gain adaptation and objective-based convergence checks.
+- 2026-02-15: Added Hodge-like decomposition metrics (gradient/curl/harmonic) to topological control outputs.

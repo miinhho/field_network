@@ -42,6 +42,7 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - Perturbation propagation (`impact diffusion`, `attenuation`)
 - Transition and resilience estimation (`transition_matrix`, `recovery metrics`)
 - Explicit dynamics step model (`x(t+1) = x(t) + F(x,t,u)`) for predict/intervene
+- Node-level topological control with Hodge-like decomposition terms (`gradient/curl/harmonic`) for co-evolution stability
 
 ### Layer 3: Answer Composer + Guardrails
 
@@ -97,3 +98,4 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - 2026-02-15: Initial memory document created from design discussion.
 - 2026-02-15: Updated PoC tech direction to uv-managed virtualenv and standard libraries (`numpy`, `networkx`).
 - 2026-02-15: Added explicit flow dynamics equation requirement to the architecture memory.
+- 2026-02-15: Added topological control direction using gradient/curl/harmonic decomposition in core flow layer.

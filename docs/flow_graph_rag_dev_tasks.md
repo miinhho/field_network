@@ -161,6 +161,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Basin/trigger and recovery-path metrics (`overshoot`, `settling_time`, `path_efficiency`)
   - Basin boundary and trigger-strength metrics (`basin_radius`, `basin_occupancy`, `avg_trigger_confidence`)
   - Basin strategy plugin support (`centroid_std`, `quantile`) and shock-to-transition causal alignment score
+  - Time-axis phase-transition detector (`PhaseTransitionAnalyzer`) integrated into core cycle metrics
   - Analyzer configuration object for domain tuning (`FlowAnalyzerConfig`: thresholds, weights, lag)
   - Unit tests for dynamics and flow analysis
 - Missing:
@@ -169,7 +170,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Domain-specific trigger thresholds (currently global constants)
   - Dynamic graph adjustment policy learning/calibration from real outcomes
   - Stronger control optimization (current multistep lookahead is still local horizon, not global optimizer)
-  - Persistent/topological-history aware phase-change detection (current simplicial term is per-step snapshot only)
+  - Persistent/topological-history aware phase-change calibration (current phase detector is heuristic, not data-calibrated)
   - Evaluation protocol redesign for dynamics validity (non-leaky ground truth)
   - Real GraphRAG generation path (current baseline remains retrieval-heavy)
 
@@ -204,3 +205,4 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added multiscale coarse-to-fine control (`ClusterFlowController`) and cross-scale metrics.
 - 2026-02-15: Upgraded to multi-step discounted lookahead and tightened convergence with cross-scale consistency condition.
 - 2026-02-15: Added simplicial topology module and wired `simplex_density`/`topological_tension` into control objective and pipeline metrics.
+- 2026-02-15: Added `PhaseTransitionAnalyzer` and exposed critical/early-warning/regime-switch metrics in predict/intervene outputs.

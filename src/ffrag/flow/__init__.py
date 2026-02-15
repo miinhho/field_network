@@ -6,6 +6,7 @@ from .adjustment import DynamicGraphAdjuster, GraphAdjustmentResult
 from .control import TopologicalFlowController, TopologicalControlResult
 from .multiscale import ClusterFlowController, ClusterPlanResult
 from .topology import SimplicialTopologyModel, SimplicialTopologyResult
+from .phase import PhaseTransitionAnalyzer, PhaseTransitionResult
 
 __all__ = [
     "StateVectorBuilder",
@@ -25,4 +26,6 @@ __all__ = [
     "ClusterPlanResult",
     "SimplicialTopologyModel",
     "SimplicialTopologyResult",
+    "PhaseTransitionAnalyzer",
+    "PhaseTransitionResult",
 ]

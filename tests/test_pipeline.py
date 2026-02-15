@@ -104,6 +104,10 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("cluster_objective", answer.metrics_used)
         self.assertIn("cross_scale_consistency", answer.metrics_used)
         self.assertIn("micro_refinement_gain", answer.metrics_used)
+        self.assertIn("critical_transition_score", answer.metrics_used)
+        self.assertIn("early_warning_score", answer.metrics_used)
+        self.assertIn("regime_switch_count", answer.metrics_used)
+        self.assertIn("coherence_break_score", answer.metrics_used)
 
     def test_intervene_route_returns_rewiring_metric(self) -> None:
         answer = self.rag.run(self.graph, Query(text="intervene to reduce risk"))
@@ -136,6 +140,10 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("intervention_topological_tension", answer.metrics_used)
         self.assertIn("baseline_cluster_objective", answer.metrics_used)
         self.assertIn("intervention_cluster_objective", answer.metrics_used)
+        self.assertIn("baseline_critical_transition_score", answer.metrics_used)
+        self.assertIn("intervention_critical_transition_score", answer.metrics_used)
+        self.assertIn("baseline_early_warning_score", answer.metrics_used)
+        self.assertIn("intervention_early_warning_score", answer.metrics_used)
 
     def test_guardrail_blocks_subjective_inference(self) -> None:
         answer = self.rag.run(self.graph, Query(text="describe"))

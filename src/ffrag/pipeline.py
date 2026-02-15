@@ -10,6 +10,7 @@ from .flow import (
     FlowAnalyzerConfig,
     FlowDynamicsAnalyzer,
     FlowFieldDynamics,
+    PhaseTransitionAnalyzer,
     FlowSimulator,
     StateVectorBuilder,
     TopologicalFlowController,
@@ -45,6 +46,11 @@ class _CoreCycleSummary:
     mean_higher_order_pressure: float
     mean_simplex_density: float
     mean_topological_tension: float
+    critical_transition_score: float
+    early_warning_score: float
+    regime_switch_count: int
+    coherence_break_score: float
+    dominant_regime: str
     mean_cluster_objective: float
     mean_cross_scale_consistency: float
     mean_micro_refinement_gain: float
@@ -60,6 +66,7 @@ class FlowGraphRAG:
         self.simulator = FlowSimulator()
         self.dynamics = FlowFieldDynamics()
         self.analyzer = FlowDynamicsAnalyzer(config=analyzer_config)
+        self.phase_analyzer = PhaseTransitionAnalyzer()
         self.adjuster = DynamicGraphAdjuster()
         self.controller = TopologicalFlowController()
         self.cluster_controller = ClusterFlowController()
@@ -110,6 +117,7 @@ class FlowGraphRAG:
             f"Trigger confidence avg={trans.avg_trigger_confidence:.3f}; basin occupancy={trans.basin_occupancy:.3f}.",
             f"Graph adjusted cumulatively: +{cycle.total_strengthened}/-{cycle.total_weakened} edges, mean shift={cycle.mean_weight_shift:.4f}.",
             f"Topological control energy={cycle.mean_control_energy:.4f}, residual ratio={cycle.mean_residual_ratio:.4f}.",
+            f"Phase regime={cycle.dominant_regime}; critical score={cycle.critical_transition_score:.3f}.",
         ]
         metrics = {
             "hops_executed": 0.0,
@@ -152,6 +160,10 @@ class FlowGraphRAG:
             "cluster_objective": float(cycle.mean_cluster_objective),
             "cross_scale_consistency": float(cycle.mean_cross_scale_consistency),
             "micro_refinement_gain": float(cycle.mean_micro_refinement_gain),
+            "critical_transition_score": float(cycle.critical_transition_score),
+            "early_warning_score": float(cycle.early_warning_score),
+            "regime_switch_count": float(cycle.regime_switch_count),
+            "coherence_break_score": float(cycle.coherence_break_score),
         }
         evidence_ids = [f"perturbation:{p.perturbation_id}"]
         return compose_answer("predict", claims, evidence_ids, metrics, uncertainty=0.35)
@@ -184,6 +196,7 @@ class FlowGraphRAG:
             f"Intervention trigger confidence avg={int_trans.avg_trigger_confidence:.3f}; basin occupancy={int_trans.basin_occupancy:.3f}.",
             f"Structural adjustment gain={structural_gain:.4f} (lower post-intervention edge shift is better).",
             f"Control energy baseline/intervention={baseline_cycle.mean_control_energy:.4f}/{intervention_cycle.mean_control_energy:.4f}.",
+            f"Critical transition score baseline/intervention={baseline_cycle.critical_transition_score:.3f}/{intervention_cycle.critical_transition_score:.3f}.",
         ]
         metrics = {
             "rewire_candidates": float(len(rewires)),
@@ -234,6 +247,14 @@ class FlowGraphRAG:
             "intervention_cross_scale_consistency": float(intervention_cycle.mean_cross_scale_consistency),
             "baseline_micro_refinement_gain": float(baseline_cycle.mean_micro_refinement_gain),
             "intervention_micro_refinement_gain": float(intervention_cycle.mean_micro_refinement_gain),
+            "baseline_critical_transition_score": float(baseline_cycle.critical_transition_score),
+            "intervention_critical_transition_score": float(intervention_cycle.critical_transition_score),
+            "baseline_early_warning_score": float(baseline_cycle.early_warning_score),
+            "intervention_early_warning_score": float(intervention_cycle.early_warning_score),
+            "baseline_regime_switch_count": float(baseline_cycle.regime_switch_count),
+            "intervention_regime_switch_count": float(intervention_cycle.regime_switch_count),
+            "baseline_coherence_break_score": float(baseline_cycle.coherence_break_score),
+            "intervention_coherence_break_score": float(intervention_cycle.coherence_break_score),
         }
         evidence_ids = [f"perturbation:{p.perturbation_id}"]
         return compose_answer("intervene", claims, evidence_ids, metrics, uncertainty=0.4)
@@ -399,6 +420,12 @@ class FlowGraphRAG:
         mean_refinement_gain = (
             sum(micro_refinement_gain) / len(micro_refinement_gain) if micro_refinement_gain else 0.0
         )
+        phase = self.phase_analyzer.analyze(
+            trajectory=trajectory,
+            attractor_distances=distance_series,
+            objective_scores=objective_scores,
+            topological_tensions=topological_tensions,
+        )
         objective_improvement = (
             (objective_scores[0] - objective_scores[-1]) if len(objective_scores) >= 2 else 0.0
         )
@@ -431,6 +458,11 @@ class FlowGraphRAG:
             mean_higher_order_pressure=mean_higher_pressure,
             mean_simplex_density=mean_simplex_density,
             mean_topological_tension=mean_topological_tension,
+            critical_transition_score=phase.critical_transition_score,
+            early_warning_score=phase.early_warning_score,
+            regime_switch_count=phase.regime_switch_count,
+            coherence_break_score=phase.coherence_break_score,
+            dominant_regime=phase.dominant_regime,
             mean_cluster_objective=mean_cluster_obj,
             mean_cross_scale_consistency=mean_consistency,
             mean_micro_refinement_gain=mean_refinement_gain,

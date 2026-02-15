@@ -38,6 +38,8 @@ class AdjustmentTests(unittest.TestCase):
         self.assertGreaterEqual(len(out.suggested_drop_edges), 0)
         self.assertGreaterEqual(len(out.suggested_new_edges), 0)
         self.assertGreaterEqual(out.adjustment_objective_score, 0.0)
+        self.assertGreaterEqual(out.selected_adjustment_scale, 0.5)
+        self.assertLessEqual(out.selected_adjustment_scale, 1.2)
 
     def test_phase_aware_adjustment_becomes_conservative(self) -> None:
         adjuster = DynamicGraphAdjuster()
@@ -60,6 +62,7 @@ class AdjustmentTests(unittest.TestCase):
         self.assertLessEqual(len(risky.suggested_new_edges), len(base.suggested_new_edges))
         self.assertLessEqual(len(risky.suggested_drop_edges), len(base.suggested_drop_edges))
         self.assertGreaterEqual(risky.adjustment_objective_score, base.adjustment_objective_score - 1e-6)
+        self.assertLessEqual(risky.selected_adjustment_scale, base.selected_adjustment_scale + 1e-6)
 
 
 if __name__ == "__main__":

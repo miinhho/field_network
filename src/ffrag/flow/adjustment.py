@@ -16,6 +16,7 @@ class GraphAdjustmentResult:
     unchanged_edges: int
     mean_weight_shift: float
     adjustment_objective_score: float
+    selected_adjustment_scale: float
     suggested_new_edges: list[tuple[str, str]]
     suggested_drop_edges: list[tuple[str, str]]
 
@@ -51,6 +52,14 @@ class DynamicGraphAdjuster:
         instability = self._estimate_instability(state)
         phase_risk = self._phase_risk(phase_context)
         lr_scale = 1.0 - 0.6 * phase_risk
+        plan_scale = self._select_adjustment_scale(
+            graph=graph,
+            impact_by_actant=impact_by_actant,
+            instability=instability,
+            viscosity=viscosity,
+            phase_risk=phase_risk,
+            lr_scale=lr_scale,
+        )
 
         strengthened = 0
         weakened = 0
@@ -62,11 +71,11 @@ class DynamicGraphAdjuster:
             dst_impact = float(impact_by_actant.get(edge.target_id, 0.0))
             pressure = 0.5 * (src_impact + dst_impact)
 
-            delta = self.learning_rate * lr_scale * (
+            delta = self.learning_rate * lr_scale * plan_scale * (
                 (0.22 * pressure) + (0.10 * instability) - (0.08 * viscosity) - (0.10 * phase_risk)
             )
             if pressure < 0.08:
-                delta -= self.learning_rate * lr_scale * 0.04
+                delta -= self.learning_rate * lr_scale * plan_scale * 0.04
 
             new_weight = self._clip(edge.weight + delta)
             shift = new_weight - edge.weight
@@ -111,6 +120,7 @@ class DynamicGraphAdjuster:
             unchanged_edges=unchanged,
             mean_weight_shift=round(mean_shift, 6),
             adjustment_objective_score=round(objective, 6),
+            selected_adjustment_scale=round(plan_scale, 6),
             suggested_new_edges=suggested_new,
             suggested_drop_edges=suggested_drop,
         )
@@ -147,7 +157,12 @@ class DynamicGraphAdjuster:
                 continue
             sim = self._cosine(node_vec[a], node_vec[b])
             bridge = self._bridge_score(a, b, neighbors)
-            score = 0.72 * sim + 0.28 * bridge
+            ia = float(impact_by_actant.get(a, 0.0))
+            ib = float(impact_by_actant.get(b, 0.0))
+            stability = 1.0 - (abs(ia - ib) / max(1e-6, ia + ib + 1e-6))
+            low_risk_score = 0.55 * sim + 0.45 * bridge
+            high_risk_score = 0.7 * sim + 0.3 * stability
+            score = (1.0 - phase_risk) * low_risk_score + phase_risk * high_risk_score
             scored_pairs.append((score, (a, b)))
 
         scored_pairs.sort(key=lambda item: item[0], reverse=True)
@@ -166,7 +181,8 @@ class DynamicGraphAdjuster:
             src_impact = float(impact_by_actant.get(edge.source_id, 0.0))
             dst_impact = float(impact_by_actant.get(edge.target_id, 0.0))
             impact_scale = 0.2 + 0.35 * max(0.0, min(1.0, phase_risk))
-            score = edge.weight + impact_scale * (src_impact + dst_impact)
+            risk_gap = abs(src_impact - dst_impact)
+            score = edge.weight + impact_scale * (src_impact + dst_impact) - 0.2 * phase_risk * risk_gap
             scored.append((score, (edge.source_id, edge.target_id)))
 
         scored.sort(key=lambda item: item[0])
@@ -240,6 +256,105 @@ class DynamicGraphAdjuster:
         rewiring_cost = 0.07 * (new_edge_count + drop_edge_count)
         risk_penalty = 0.35 * phase_risk
         return 0.5 * churn + 0.35 * volatility + rewiring_cost + risk_penalty
+
+    def _select_adjustment_scale(
+        self,
+        graph: LayeredGraph,
+        impact_by_actant: dict[str, float],
+        instability: float,
+        viscosity: float,
+        phase_risk: float,
+        lr_scale: float,
+    ) -> float:
+        candidates = (0.5, 0.8, 1.0, 1.2)
+        best_scale = 1.0
+        best_obj = float("inf")
+        for scale in candidates:
+            obj = self._plan_objective_rollout(
+                graph=graph,
+                impact_by_actant=impact_by_actant,
+                instability=instability,
+                viscosity=viscosity,
+                phase_risk=phase_risk,
+                lr_scale=lr_scale,
+                scale=scale,
+            )
+            if obj < best_obj:
+                best_obj = obj
+                best_scale = scale
+        return best_scale
+
+    def _plan_objective_rollout(
+        self,
+        graph: LayeredGraph,
+        impact_by_actant: dict[str, float],
+        instability: float,
+        viscosity: float,
+        phase_risk: float,
+        lr_scale: float,
+        scale: float,
+    ) -> float:
+        base_shifts = self._simulate_shifts(
+            graph=graph,
+            impact_by_actant=impact_by_actant,
+            instability=instability,
+            viscosity=viscosity,
+            phase_risk=phase_risk,
+            lr_scale=lr_scale,
+            scale=scale,
+        )
+        if not base_shifts:
+            return 0.0
+        mean_abs_shift = sum(abs(v) for v in base_shifts) / len(base_shifts)
+        desired_shift = 0.06 + 0.1 * max(0.0, instability - 0.5 * viscosity) * (1.0 - 0.6 * phase_risk)
+        under_adjust = max(0.0, desired_shift - mean_abs_shift)
+        over_adjust = max(0.0, mean_abs_shift - (0.24 - 0.12 * phase_risk))
+
+        total = 0.0
+        discount = 1.0
+        inst = instability
+        risk = phase_risk
+        for _ in range(3):
+            volatility = max(0.0, inst - viscosity)
+            step_obj = self._adjustment_objective(
+                mean_abs_shift=mean_abs_shift,
+                instability=inst,
+                viscosity=viscosity,
+                phase_risk=risk,
+                new_edge_count=0,
+                drop_edge_count=0,
+            )
+            step_obj += 0.8 * under_adjust + 0.6 * over_adjust
+            total += discount * step_obj
+            # crude forecast: adjustment reduces instability a bit over horizon
+            inst = max(0.0, inst - 0.35 * mean_abs_shift - 0.08 * volatility)
+            risk = max(0.0, risk - 0.12 * mean_abs_shift)
+            discount *= 0.72
+        return total
+
+    def _simulate_shifts(
+        self,
+        graph: LayeredGraph,
+        impact_by_actant: dict[str, float],
+        instability: float,
+        viscosity: float,
+        phase_risk: float,
+        lr_scale: float,
+        scale: float,
+    ) -> list[float]:
+        shifts: list[float] = []
+        for edge in graph.interactions:
+            src_impact = float(impact_by_actant.get(edge.source_id, 0.0))
+            dst_impact = float(impact_by_actant.get(edge.target_id, 0.0))
+            pressure = 0.5 * (src_impact + dst_impact)
+            delta = self.learning_rate * lr_scale * scale * (
+                (0.22 * pressure) + (0.10 * instability) - (0.08 * viscosity) - (0.10 * phase_risk)
+            )
+            if pressure < 0.08:
+                delta -= self.learning_rate * lr_scale * scale * 0.04
+            new_weight = self._clip(edge.weight + delta)
+            shifts.append(new_weight - edge.weight)
+        return shifts
 
     def _clip(self, value: float) -> float:
         return max(self.min_weight, min(self.max_weight, value))

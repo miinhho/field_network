@@ -153,6 +153,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Objective-aware control adaptation (objective score tracked and used for gain updates/convergence)
   - Topological rigor upgrade with Hodge-like decomposition metrics (`gradient/curl/harmonic` ratios)
   - Higher-order topology signal integrated (`higher_order_pressure` from 4-cycle style loop density)
+  - One-step lookahead gain selection for control parameters (`k_div`, `residual_damping`, `k_higher`)
   - Predict/intervene integration with dynamics snapshots
   - Transition/resilience analysis (`transition_matrix`, `recovery_rate`, `hysteresis_index`)
   - Basin/trigger and recovery-path metrics (`overshoot`, `settling_time`, `path_efficiency`)
@@ -165,7 +166,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Basin boundary calibration against domain data (current boundary uses centroid + std radius)
   - Domain-specific trigger thresholds (currently global constants)
   - Dynamic graph adjustment policy learning/calibration from real outcomes
-  - Stronger control optimization (current objective adaptation is local heuristic, not global optimizer)
+  - Stronger control optimization (current lookahead is local one-step search, not global optimizer)
   - More rigorous high-order topology modeling (cell/simplicial complex level, currently graph-cycle approximation)
   - Evaluation protocol redesign for dynamics validity (non-leaky ground truth)
   - Real GraphRAG generation path (current baseline remains retrieval-heavy)
@@ -197,3 +198,4 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added objective-aware gain adaptation and objective-based convergence checks.
 - 2026-02-15: Added Hodge-like decomposition metrics (gradient/curl/harmonic) to topological control outputs.
 - 2026-02-15: Added higher-order pressure metric and control term from 4-cycle style topology signal.
+- 2026-02-15: Added one-step lookahead objective search for control gain selection.

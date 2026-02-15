@@ -97,15 +97,40 @@ class TopologicalFlowController:
         C = self._cycle_matrix(nodes, edges, node_index)
         curl_flow = self._solve_curl_component(C, f - gradient_flow)
         harmonic = f - gradient_flow - curl_flow
-        residual = curl_flow + harmonic
-        f_controlled = f - self.residual_damping * residual - self.k_harmonic * harmonic
-        div_after = B @ f_controlled
-
         speed_term = float(state.get("transition_speed", 0.0)) - self.target_speed
         cycle_pressure = self._cycle_pressure(nodes, edges, node_index, impact_by_actant)
         higher_pressure = self._higher_order_pressure(nodes, edges, node_index, impact_by_actant)
         curl_pressure = self._curl_pressure(C, curl_flow, len(nodes), edges, node_index)
         harmonic_pressure = self._harmonic_pressure(harmonic, len(nodes), edges, node_index)
+        cycle_pressure_mean = float(np.mean(np.abs(cycle_pressure))) if cycle_pressure.size else 0.0
+        higher_pressure_mean = float(np.mean(np.abs(higher_pressure))) if higher_pressure.size else 0.0
+
+        residual = curl_flow + harmonic
+        k_div, residual_damping, k_higher = self._lookahead_select_gains(
+            B=B,
+            f=f,
+            residual=residual,
+            harmonic=harmonic,
+            div_before=div_before,
+            phi=phi,
+            speed_term=speed_term,
+            cycle_pressure=cycle_pressure,
+            higher_pressure=higher_pressure,
+            curl_pressure=curl_pressure,
+            harmonic_pressure=harmonic_pressure,
+            cycle_pressure_mean=cycle_pressure_mean,
+            higher_pressure_mean=higher_pressure_mean,
+            flow_norm=float(np.linalg.norm(f) + 1e-9),
+            curl_norm=float(np.linalg.norm(curl_flow)),
+            harmonic_norm=float(np.linalg.norm(harmonic)),
+        )
+        self.k_div = k_div
+        self.residual_damping = residual_damping
+        self.k_higher = k_higher
+
+        f_controlled = f - self.residual_damping * residual - self.k_harmonic * harmonic
+        div_after = B @ f_controlled
+
         u = (
             -self.k_div * div_before
             - self.k_phi * phi
@@ -125,8 +150,6 @@ class TopologicalFlowController:
         residual_ratio = float(np.linalg.norm(residual) / (np.linalg.norm(f) + 1e-9))
         energy = float(np.sum(u * u))
         sat = float(np.mean(np.abs(u) >= (0.98 * self.control_clip)))
-        cycle_pressure_mean = float(np.mean(np.abs(cycle_pressure))) if cycle_pressure.size else 0.0
-        higher_pressure_mean = float(np.mean(np.abs(higher_pressure))) if higher_pressure.size else 0.0
         grad_norm = float(np.linalg.norm(gradient_flow))
         curl_norm = float(np.linalg.norm(curl_flow))
         harmonic_norm = float(np.linalg.norm(harmonic))
@@ -204,6 +227,82 @@ class TopologicalFlowController:
         self.residual_damping = min(self._residual_bounds[1], max(self._residual_bounds[0], self.residual_damping))
         self.k_higher = min(self._k_higher_bounds[1], max(self._k_higher_bounds[0], self.k_higher))
         self._prev_objective = objective
+
+    def _lookahead_select_gains(
+        self,
+        B: np.ndarray,
+        f: np.ndarray,
+        residual: np.ndarray,
+        harmonic: np.ndarray,
+        div_before: np.ndarray,
+        phi: np.ndarray,
+        speed_term: float,
+        cycle_pressure: np.ndarray,
+        higher_pressure: np.ndarray,
+        curl_pressure: np.ndarray,
+        harmonic_pressure: np.ndarray,
+        cycle_pressure_mean: float,
+        higher_pressure_mean: float,
+        flow_norm: float,
+        curl_norm: float,
+        harmonic_norm: float,
+    ) -> tuple[float, float, float]:
+        k_div_candidates = (
+            self.k_div - self.objective_step_k_div,
+            self.k_div,
+            self.k_div + self.objective_step_k_div,
+        )
+        residual_candidates = (
+            self.residual_damping - self.objective_step_residual,
+            self.residual_damping,
+            self.residual_damping + self.objective_step_residual,
+        )
+        k_higher_candidates = (
+            self.k_higher - 0.01,
+            self.k_higher,
+            self.k_higher + 0.01,
+        )
+
+        best = (self.k_div, self.residual_damping, self.k_higher)
+        best_obj = float("inf")
+        residual_ratio = float(np.linalg.norm(residual) / flow_norm)
+        curl_ratio = curl_norm / flow_norm
+        harmonic_ratio = harmonic_norm / flow_norm
+
+        for kd in k_div_candidates:
+            kd = min(self._k_div_bounds[1], max(self._k_div_bounds[0], kd))
+            for rd in residual_candidates:
+                rd = min(self._residual_bounds[1], max(self._residual_bounds[0], rd))
+                for kh in k_higher_candidates:
+                    kh = min(self._k_higher_bounds[1], max(self._k_higher_bounds[0], kh))
+                    f_ctrl = f - rd * residual - self.k_harmonic * harmonic
+                    div_after = B @ f_ctrl
+                    u = (
+                        -kd * div_before
+                        - self.k_phi * phi
+                        - self.k_speed * speed_term
+                        - self.k_cycle * cycle_pressure
+                        - kh * higher_pressure
+                        - self.k_curl * curl_pressure
+                        - self.k_harmonic * harmonic_pressure
+                    )
+                    u = np.clip(u, -self.control_clip, self.control_clip)
+                    sat = float(np.mean(np.abs(u) >= (0.98 * self.control_clip)))
+                    energy = float(np.sum(u * u))
+                    obj = self._objective(
+                        div_after=float(np.linalg.norm(div_after)),
+                        residual_ratio=residual_ratio,
+                        control_energy=energy,
+                        saturation_ratio=sat,
+                        cycle_pressure=cycle_pressure_mean,
+                        curl_ratio=curl_ratio,
+                        harmonic_ratio=harmonic_ratio,
+                        higher_pressure=higher_pressure_mean,
+                    )
+                    if obj < best_obj:
+                        best_obj = obj
+                        best = (kd, rd, kh)
+        return best
 
     def _objective(
         self,

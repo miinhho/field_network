@@ -44,6 +44,7 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - Explicit dynamics step model (`x(t+1) = x(t) + F(x,t,u)`) for predict/intervene
 - Node-level topological control with Hodge-like decomposition terms (`gradient/curl/harmonic`) for co-evolution stability
 - Higher-order topological pressure term (4-cycle style loop pressure) included in node control input
+- One-step lookahead objective minimization for control gain selection (`k_div`, `residual_damping`, `k_higher`)
 
 ### Layer 3: Answer Composer + Guardrails
 
@@ -101,3 +102,4 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - 2026-02-15: Added explicit flow dynamics equation requirement to the architecture memory.
 - 2026-02-15: Added topological control direction using gradient/curl/harmonic decomposition in core flow layer.
 - 2026-02-15: Added higher-order topological pressure signal to control objectives.
+- 2026-02-15: Added one-step lookahead control gain selection to reduce local objective per cycle.

@@ -243,3 +243,4 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added standalone dynamic simulator and CLI for per-step node/edge/control/phase observability.
 - 2026-02-15: Added visual HTML replay output mode for dynamic simulator CLI.
 - 2026-02-15: Fixed simulator replay to use per-frame node positions and added flow-advection displacement so node movement reflects dynamic influence each cycle.
+- 2026-02-15: Added CLI-scale controls for large synthetic graphs (`--nodes`, `--avg-degree`, `--seed`) and rendering controls (`--render-max-edges`, `--render-max-labels`) plus no-`scipy` layout fallback for large runs.

@@ -14,16 +14,22 @@ def main() -> None:
     parser.add_argument("--intensity", type=float, default=1.0)
     parser.add_argument("--target", type=str, default="hub")
     parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument("--nodes", type=int, default=6)
+    parser.add_argument("--avg-degree", type=float, default=2.3)
+    parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--render-max-edges", type=int, default=6000)
+    parser.add_argument("--render-max-labels", type=int, default=40)
     parser.add_argument("--format", choices=("table", "json", "html"), default="table")
     parser.add_argument("--out", type=str, default="simulator_trace.html")
     args = parser.parse_args()
 
     sim = DynamicGraphSimulator()
-    graph = sim.demo_graph()
+    graph = sim.generate_graph(node_count=max(2, args.nodes), avg_degree=max(0.5, args.avg_degree), seed=args.seed)
+    target = args.target if args.target in graph.actants else next(iter(graph.actants), "")
     perturbation = Perturbation(
         perturbation_id="sim-run",
         timestamp=datetime.now(timezone.utc),
-        targets=[args.target] if args.target else [],
+        targets=[target] if target else [],
         intensity=max(0.0, args.intensity),
         kind="simulation",
     )
@@ -33,7 +39,11 @@ def main() -> None:
         print(json.dumps(_to_json(trace), ensure_ascii=True, indent=2))
         return
     if args.format == "html":
-        html = _to_html(trace)
+        html = _to_html(
+            trace,
+            render_max_edges=max(200, args.render_max_edges),
+            render_max_labels=max(0, args.render_max_labels),
+        )
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(html)
         print(f"wrote_html,{args.out}")
@@ -101,7 +111,7 @@ def _print_table(trace) -> None:
             print(f"      edge_deltas: {changes}")
 
 
-def _to_html(trace) -> str:
+def _to_html(trace, render_max_edges: int = 6000, render_max_labels: int = 40) -> str:
     payload = json.dumps(_to_json(trace), ensure_ascii=True)
     html = """<!doctype html>
 <html lang="en">
@@ -229,6 +239,8 @@ def _to_html(trace) -> str:
     const ctx = canvas.getContext("2d");
     const playBtn = document.getElementById("playBtn");
     let timer = null;
+    const MAX_EDGES = __MAX_EDGES__;
+    const MAX_LABELS = __MAX_LABELS__;
 
     function mapPoint(x, y) {
       const px = 80 + (x + 1) * 0.5 * (canvas.width - 160);
@@ -247,9 +259,13 @@ def _to_html(trace) -> str:
       const controls = f.node_controls || {};
       const edges = f.edges || [];
       const positions = f.node_positions || layout;
+      const sortedEdges = edges
+        .slice()
+        .sort((a, b) => Number(b.weight || 0) - Number(a.weight || 0))
+        .slice(0, MAX_EDGES);
 
       // edges
-      for (const e of edges) {
+      for (const e of sortedEdges) {
         const a = positions[e.source_id];
         const b = positions[e.target_id];
         if (!a || !b) continue;
@@ -263,6 +279,12 @@ def _to_html(trace) -> str:
         ctx.stroke();
       }
 
+      const labelNodes = nodeIds
+        .slice()
+        .sort((a, b) => Math.abs(Number(controls[b] || 0)) - Math.abs(Number(controls[a] || 0)))
+        .slice(0, MAX_LABELS);
+      const labelSet = new Set(labelNodes);
+
       // nodes
       for (const n of nodeIds) {
         const p = positions[n];
@@ -270,7 +292,7 @@ def _to_html(trace) -> str:
         const [x, y] = mapPoint(p[0], p[1]);
         const v = Number(finalVals[n] || 0);
         const c = Number(controls[n] || 0);
-        const r = 8 + Math.min(18, v * 6);
+        const r = 2 + Math.min(12, Math.max(0, v) * 4);
         const hue = c >= 0 ? 195 : 28;
         const sat = 70;
         const lit = 42 + Math.min(35, Math.abs(c) * 40);
@@ -281,9 +303,11 @@ def _to_html(trace) -> str:
         ctx.strokeStyle = "rgba(240,245,255,0.75)";
         ctx.lineWidth = 1;
         ctx.stroke();
-        ctx.fillStyle = "#ecf1ff";
-        ctx.font = "12px IBM Plex Mono, monospace";
-        ctx.fillText(`${n} (${v.toFixed(2)})`, x + r + 4, y + 4);
+        if (labelSet.has(n)) {
+          ctx.fillStyle = "#ecf1ff";
+          ctx.font = "12px IBM Plex Mono, monospace";
+          ctx.fillText(`${n} (${v.toFixed(2)})`, x + r + 4, y + 4);
+        }
       }
 
       document.getElementById("stepLabel").textContent = String(f.step);
@@ -328,7 +352,11 @@ def _to_html(trace) -> str:
   </script>
 </body>
 </html>"""
-    return html.replace("__PAYLOAD__", payload)
+    return (
+        html.replace("__PAYLOAD__", payload)
+        .replace("__MAX_EDGES__", str(max(1, int(render_max_edges))))
+        .replace("__MAX_LABELS__", str(max(0, int(render_max_labels))))
+    )
 
 
 if __name__ == "__main__":

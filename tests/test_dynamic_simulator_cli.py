@@ -27,6 +27,8 @@ class DynamicSimulatorCLITests(unittest.TestCase):
             "ffrag.dynamic_simulator_cli",
             "--steps",
             "2",
+            "--nodes",
+            "120",
             "--format",
             "json",
         ]

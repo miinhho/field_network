@@ -45,6 +45,12 @@ class DynamicSimulatorTests(unittest.TestCase):
                 break
         self.assertTrue(moved)
 
+    def test_generate_large_graph(self) -> None:
+        sim = DynamicGraphSimulator()
+        g = sim.generate_graph(node_count=1200, avg_degree=3.0, seed=11)
+        self.assertEqual(len(g.actants), 1200)
+        self.assertGreaterEqual(len(g.interactions), 1199)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import math
 
 import networkx as nx
 
@@ -93,6 +94,8 @@ class DynamicGraphSimulator:
             prop = self.simulator.propagate(current_graph, perturbation)
 
             target = perturbation.targets[0] if perturbation.targets else next(iter(current_graph.actants), "")
+            if target and target not in current_graph.actants:
+                target = next(iter(current_graph.actants), "")
             initial_state = self.state_builder.build(current_graph, target).values if target else {}
             history = self._history_states(current_graph, target, prop.impact_by_actant)
             shock = self._shock_vector(perturbation)
@@ -184,6 +187,20 @@ class DynamicGraphSimulator:
         return SimulationTrace(frames=frames, final_graph=current_graph, layout=layout)
 
     def demo_graph(self) -> LayeredGraph:
+        return self.generate_graph(node_count=6, avg_degree=2.3, seed=7)
+
+    def generate_graph(
+        self,
+        node_count: int = 6,
+        avg_degree: float = 2.3,
+        seed: int = 7,
+    ) -> LayeredGraph:
+        n = max(2, int(node_count))
+        if n <= 10:
+            return self._small_demo_graph()
+        return self._random_graph(node_count=n, avg_degree=max(0.5, float(avg_degree)), seed=seed)
+
+    def _small_demo_graph(self) -> LayeredGraph:
         g = LayeredGraph(graph_id="sim-demo", schema_version="0.1")
         for nid in ["a", "b", "c", "d", "e", "hub"]:
             g.actants[nid] = Actant(actant_id=nid, kind="entity", label=nid.upper())
@@ -206,6 +223,37 @@ class DynamicGraphSimulator:
                     target_id=t,
                     layer=layer,
                     weight=w,
+                )
+            )
+        return g
+
+    def _random_graph(self, node_count: int, avg_degree: float, seed: int) -> LayeredGraph:
+        g = LayeredGraph(graph_id=f"sim-random-{node_count}", schema_version="0.1")
+        node_ids = [f"n{i}" for i in range(node_count)]
+        for nid in node_ids:
+            g.actants[nid] = Actant(actant_id=nid, kind="entity", label=nid.upper())
+
+        max_edges = node_count * (node_count - 1) // 2
+        m = int(min(max_edges, max(node_count - 1, math.floor(node_count * avg_degree / 2.0))))
+        rg = nx.gnm_random_graph(node_count, m, seed=seed)
+        if not nx.is_connected(rg):
+            comps = [list(c) for c in nx.connected_components(rg)]
+            for i in range(len(comps) - 1):
+                rg.add_edge(comps[i][0], comps[i + 1][0])
+
+        base = datetime(2026, 2, 1, 9, 0, 0)
+        layers = ("social", "temporal", "spatial")
+        for i, (u, v) in enumerate(rg.edges()):
+            layer = layers[(u + v + i) % len(layers)]
+            weight = 0.35 + ((u * 17 + v * 13 + i * 7) % 100) / 100.0
+            g.interactions.append(
+                Interaction(
+                    interaction_id=f"sim_re{i}",
+                    timestamp=base + timedelta(seconds=i),
+                    source_id=node_ids[u],
+                    target_id=node_ids[v],
+                    layer=layer,
+                    weight=float(round(weight, 4)),
                 )
             )
         return g
@@ -307,11 +355,15 @@ class DynamicGraphSimulator:
         pos_arg = None
         if prev_layout:
             pos_arg = {k: prev_layout[k] for k in g.nodes() if k in prev_layout}
-        pos = nx.spring_layout(g, seed=7, weight="weight", pos=pos_arg, iterations=25)
-        out: dict[str, tuple[float, float]] = {}
-        for nid, xy in pos.items():
-            out[nid] = (float(xy[0]), float(xy[1]))
-        return out
+        iterations = 25 if g.number_of_nodes() <= 400 else 8
+        try:
+            pos = nx.spring_layout(g, seed=7, weight="weight", pos=pos_arg, iterations=iterations)
+            out: dict[str, tuple[float, float]] = {}
+            for nid, xy in pos.items():
+                out[nid] = (float(xy[0]), float(xy[1]))
+            return out
+        except ModuleNotFoundError:
+            return self._layout_no_scipy(g, prev_layout)
 
     def _advect_layout(
         self,
@@ -331,3 +383,51 @@ class DynamicGraphSimulator:
             ny_ = max(-1.2, min(1.2, y + 0.18 * p))
             out[nid] = (nx_, ny_)
         return out
+
+    def _layout_no_scipy(
+        self,
+        g: nx.Graph,
+        prev_layout: dict[str, tuple[float, float]] | None = None,
+    ) -> dict[str, tuple[float, float]]:
+        nodes = list(g.nodes())
+        n = max(1, len(nodes))
+        pos: dict[str, tuple[float, float]] = {}
+
+        if prev_layout:
+            for nid in nodes:
+                if nid in prev_layout:
+                    pos[nid] = prev_layout[nid]
+        if len(pos) != len(nodes):
+            for i, nid in enumerate(nodes):
+                if nid in pos:
+                    continue
+                angle = 2.0 * math.pi * (i / n)
+                r = 0.55 + 0.35 * ((i * 31) % 100) / 100.0
+                pos[nid] = (r * math.cos(angle), r * math.sin(angle))
+
+        rounds = 2 if n <= 2000 else 1
+        alpha = 0.22 if n <= 2000 else 0.14
+        for _ in range(rounds):
+            nxt: dict[str, tuple[float, float]] = {}
+            for nid in nodes:
+                nbrs = list(g.neighbors(nid))
+                if not nbrs:
+                    nxt[nid] = pos[nid]
+                    continue
+                sx = 0.0
+                sy = 0.0
+                sw = 0.0
+                for nb in nbrs:
+                    w = float(g[nid][nb].get("weight", 1.0))
+                    px, py = pos[nb]
+                    sx += w * px
+                    sy += w * py
+                    sw += w
+                cx = sx / max(sw, 1e-9)
+                cy = sy / max(sw, 1e-9)
+                x, y = pos[nid]
+                nx_ = (1.0 - alpha) * x + alpha * cx
+                ny_ = (1.0 - alpha) * y + alpha * cy
+                nxt[nid] = (max(-1.2, min(1.2, nx_)), max(-1.2, min(1.2, ny_)))
+            pos = nxt
+        return pos

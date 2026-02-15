@@ -144,3 +144,4 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - 2026-02-15: Added planner calibration hooks, term-level objective logging, and extreme scenario integration tests.
 - 2026-02-15: Added structural safety constraints for drop edits and completed phase-rigor signal propagation into planner policy.
 - 2026-02-15: Added explicit core completion checklist and readiness tests for 100%-implementation verification.
+- 2026-02-15: Added readiness-report CLI and offline calibration runner with script entrypoints.

@@ -11,6 +11,7 @@ from .models import (
     Answer,
 )
 from .pipeline import FlowGraphRAG
+from .calibration import CalibrationRow, run_calibration, candidate_configs
 from .flow import (
     ClusterFlowController,
     ClusterPlanResult,
@@ -38,6 +39,9 @@ __all__ = [
     "Query",
     "Answer",
     "FlowGraphRAG",
+    "CalibrationRow",
+    "run_calibration",
+    "candidate_configs",
     "FlowFieldDynamics",
     "FlowDynamicsAnalyzer",
     "FlowAnalyzerConfig",

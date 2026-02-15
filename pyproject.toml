@@ -30,3 +30,8 @@ testpaths = ["tests"]
 
 [tool.uv]
 default-groups = ["dev"]
+
+[project.scripts]
+ffrag-benchmark = "ffrag.benchmark_cli:main"
+ffrag-core-readiness = "ffrag.core_readiness_cli:main"
+ffrag-calibrate = "ffrag.calibration_cli:main"

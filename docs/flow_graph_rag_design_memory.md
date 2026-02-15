@@ -56,6 +56,7 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - Dynamic graph adjustment now has an explicit objective score (`adjustment_objective_score`) combining churn, volatility, rewiring cost, and phase-risk penalty
 - Global-planning PoC added to graph adjustment: candidate adjustment scales are evaluated with short-horizon discounted objective rollout before applying edge updates
 - Rewiring candidate policy is now phase-aware at scoring level (high-risk favors stable similarity; low-risk favors exploratory bridging)
+- Adaptive weighting layer added: objective/planner/rewiring behavior now responds to graph density (sparse vs dense) and impact-noise profile
 
 ### Layer 3: Answer Composer + Guardrails
 
@@ -122,3 +123,4 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - 2026-02-15: Reviewed and corrected phase-loop consistency and risk-policy effectiveness (drop/new edge conservativeness + post-adaptation safety clamp).
 - 2026-02-15: Added explicit adjustment objective formulation and exposed it in predict/intervene metrics.
 - 2026-02-15: Added multi-step adjustment-scale planner and phase-aware rewiring scoring policy.
+- 2026-02-15: Added sparse/dense/noise-adaptive weighting and exposed profile metrics (`graph_density`, `impact_noise`).

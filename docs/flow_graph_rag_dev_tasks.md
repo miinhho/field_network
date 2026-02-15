@@ -168,6 +168,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Dynamic graph adjustment objective added (`adjustment_objective_score`) and integrated into pipeline metrics
   - Multi-step global planning PoC for adjustment scale selection (`selected_adjustment_scale`) with discounted objective rollout
   - Phase-aware rewiring candidate scoring upgraded (risk-adaptive stable-vs-exploratory scoring blend)
+  - Adaptive weighting by graph profile added (density/noise-aware objective and planning candidates)
   - Analyzer configuration object for domain tuning (`FlowAnalyzerConfig`: thresholds, weights, lag)
   - Unit tests for dynamics and flow analysis
 - Missing:
@@ -217,3 +218,4 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Applied review fixes for phase-loop consistency and risk-policy efficacy (including post-adaptation safety clamp).
 - 2026-02-15: Added explicit objective for graph adjustment (churn/volatility/rewiring/risk) and surfaced baseline/intervention metrics.
 - 2026-02-15: Added global adjustment-scale planner and phase-aware rewiring scoring strategy.
+- 2026-02-15: Added sparse/dense/noise-adaptive weighting and corresponding pipeline metrics.

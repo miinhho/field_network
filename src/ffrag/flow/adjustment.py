@@ -17,6 +17,8 @@ class GraphAdjustmentResult:
     mean_weight_shift: float
     adjustment_objective_score: float
     selected_adjustment_scale: float
+    graph_density: float
+    impact_noise: float
     suggested_new_edges: list[tuple[str, str]]
     suggested_drop_edges: list[tuple[str, str]]
 
@@ -51,6 +53,7 @@ class DynamicGraphAdjuster:
         viscosity = self._estimate_viscosity(state)
         instability = self._estimate_instability(state)
         phase_risk = self._phase_risk(phase_context)
+        density, impact_noise = self._graph_profile(graph, impact_by_actant)
         lr_scale = 1.0 - 0.6 * phase_risk
         plan_scale = self._select_adjustment_scale(
             graph=graph,
@@ -58,6 +61,8 @@ class DynamicGraphAdjuster:
             instability=instability,
             viscosity=viscosity,
             phase_risk=phase_risk,
+            density=density,
+            impact_noise=impact_noise,
             lr_scale=lr_scale,
         )
 
@@ -100,8 +105,18 @@ class DynamicGraphAdjuster:
                 )
             )
 
-        suggested_new = self._suggest_new_edges(graph, impact_by_actant, phase_risk=phase_risk)
-        suggested_drop = self._suggest_drop_edges(adjusted, impact_by_actant, phase_risk=phase_risk)
+        suggested_new = self._suggest_new_edges(
+            graph,
+            impact_by_actant,
+            phase_risk=phase_risk,
+            density=density,
+        )
+        suggested_drop = self._suggest_drop_edges(
+            adjusted,
+            impact_by_actant,
+            phase_risk=phase_risk,
+            density=density,
+        )
         mean_shift = sum(shifts) / len(shifts) if shifts else 0.0
         mean_abs_shift = (sum(abs(v) for v in shifts) / len(shifts)) if shifts else 0.0
         objective = self._adjustment_objective(
@@ -109,6 +124,8 @@ class DynamicGraphAdjuster:
             instability=instability,
             viscosity=viscosity,
             phase_risk=phase_risk,
+            density=density,
+            impact_noise=impact_noise,
             new_edge_count=len(suggested_new),
             drop_edge_count=len(suggested_drop),
         )
@@ -121,6 +138,8 @@ class DynamicGraphAdjuster:
             mean_weight_shift=round(mean_shift, 6),
             adjustment_objective_score=round(objective, 6),
             selected_adjustment_scale=round(plan_scale, 6),
+            graph_density=round(density, 6),
+            impact_noise=round(impact_noise, 6),
             suggested_new_edges=suggested_new,
             suggested_drop_edges=suggested_drop,
         )
@@ -131,6 +150,7 @@ class DynamicGraphAdjuster:
         impact_by_actant: dict[str, float],
         max_edges: int = 3,
         phase_risk: float = 0.0,
+        density: float = 0.0,
     ) -> list[tuple[str, str]]:
         existing = set()
         neighbors: dict[str, set[str]] = {node: set() for node in graph.actants.keys()}
@@ -166,7 +186,11 @@ class DynamicGraphAdjuster:
             scored_pairs.append((score, (a, b)))
 
         scored_pairs.sort(key=lambda item: item[0], reverse=True)
-        limit = max(0, int(round(max_edges * (1.0 - 0.75 * max(0.0, min(1.0, phase_risk))))))
+        density_boost = 1.0 + 0.4 * (1.0 - max(0.0, min(1.0, density)))
+        limit = max(
+            0,
+            int(round(max_edges * (1.0 - 0.75 * max(0.0, min(1.0, phase_risk))) * density_boost)),
+        )
         return [pair for _, pair in scored_pairs[:limit]]
 
     def _suggest_drop_edges(
@@ -175,6 +199,7 @@ class DynamicGraphAdjuster:
         impact_by_actant: dict[str, float],
         max_edges: int = 3,
         phase_risk: float = 0.0,
+        density: float = 0.0,
     ) -> list[tuple[str, str]]:
         scored: list[tuple[float, tuple[str, str]]] = []
         for edge in graph.interactions:
@@ -186,7 +211,11 @@ class DynamicGraphAdjuster:
             scored.append((score, (edge.source_id, edge.target_id)))
 
         scored.sort(key=lambda item: item[0])
-        limit = max(0, int(round(max_edges * (1.0 - 0.7 * max(0.0, min(1.0, phase_risk))))))
+        density_bias = 0.7 + 0.6 * max(0.0, min(1.0, density))
+        limit = max(
+            0,
+            int(round(max_edges * (1.0 - 0.7 * max(0.0, min(1.0, phase_risk))) * density_bias)),
+        )
         return [edge for _, edge in scored[:limit]]
 
     def _node_embedding(
@@ -247,15 +276,21 @@ class DynamicGraphAdjuster:
         instability: float,
         viscosity: float,
         phase_risk: float,
+        density: float,
+        impact_noise: float,
         new_edge_count: int,
         drop_edge_count: int,
     ) -> float:
         # Lower is better: small structural churn with stable dynamics under risk.
         churn = mean_abs_shift
         volatility = max(0.0, instability - viscosity)
-        rewiring_cost = 0.07 * (new_edge_count + drop_edge_count)
-        risk_penalty = 0.35 * phase_risk
-        return 0.5 * churn + 0.35 * volatility + rewiring_cost + risk_penalty
+        churn_w = 0.38 + 0.22 * max(0.0, min(1.0, density))
+        volatility_w = 0.28 + 0.28 * max(0.0, min(1.0, impact_noise))
+        rewiring_w = 0.03 + 0.08 * max(0.0, min(1.0, density))
+        risk_w = 0.28 + 0.22 * max(0.0, min(1.0, phase_risk))
+        rewiring_cost = rewiring_w * (new_edge_count + drop_edge_count)
+        risk_penalty = risk_w * phase_risk
+        return churn_w * churn + volatility_w * volatility + rewiring_cost + risk_penalty
 
     def _select_adjustment_scale(
         self,
@@ -264,9 +299,11 @@ class DynamicGraphAdjuster:
         instability: float,
         viscosity: float,
         phase_risk: float,
+        density: float,
+        impact_noise: float,
         lr_scale: float,
     ) -> float:
-        candidates = (0.5, 0.8, 1.0, 1.2)
+        candidates = self._planner_candidates(density, impact_noise, phase_risk)
         best_scale = 1.0
         best_obj = float("inf")
         for scale in candidates:
@@ -276,6 +313,8 @@ class DynamicGraphAdjuster:
                 instability=instability,
                 viscosity=viscosity,
                 phase_risk=phase_risk,
+                density=density,
+                impact_noise=impact_noise,
                 lr_scale=lr_scale,
                 scale=scale,
             )
@@ -291,6 +330,8 @@ class DynamicGraphAdjuster:
         instability: float,
         viscosity: float,
         phase_risk: float,
+        density: float,
+        impact_noise: float,
         lr_scale: float,
         scale: float,
     ) -> float:
@@ -321,6 +362,8 @@ class DynamicGraphAdjuster:
                 instability=inst,
                 viscosity=viscosity,
                 phase_risk=risk,
+                density=density,
+                impact_noise=impact_noise,
                 new_edge_count=0,
                 drop_edge_count=0,
             )
@@ -355,6 +398,35 @@ class DynamicGraphAdjuster:
             new_weight = self._clip(edge.weight + delta)
             shifts.append(new_weight - edge.weight)
         return shifts
+
+    def _graph_profile(
+        self,
+        graph: LayeredGraph,
+        impact_by_actant: dict[str, float],
+    ) -> tuple[float, float]:
+        n = max(0, len(graph.actants))
+        m = max(0, len(graph.interactions))
+        possible = max(1, n * (n - 1) / 2)
+        density = max(0.0, min(1.0, m / possible))
+        vals = [float(v) for v in impact_by_actant.values()]
+        if not vals:
+            return density, 0.0
+        mean_v = sum(vals) / len(vals)
+        if mean_v <= 1e-9:
+            return density, 0.0
+        var = sum((v - mean_v) ** 2 for v in vals) / len(vals)
+        std = var ** 0.5
+        noise = max(0.0, min(1.0, std / (abs(mean_v) + 1e-9)))
+        return density, noise
+
+    def _planner_candidates(self, density: float, impact_noise: float, phase_risk: float) -> tuple[float, ...]:
+        if phase_risk > 0.75:
+            return (0.4, 0.55, 0.7, 0.85)
+        if density < 0.2 and impact_noise < 0.55:
+            return (0.7, 1.0, 1.25, 1.5)
+        if density > 0.65 or impact_noise > 0.7:
+            return (0.45, 0.65, 0.85, 1.0)
+        return (0.5, 0.8, 1.0, 1.2)
 
     def _clip(self, value: float) -> float:
         return max(self.min_weight, min(self.max_weight, value))

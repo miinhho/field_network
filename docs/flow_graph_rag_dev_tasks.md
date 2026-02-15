@@ -180,6 +180,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Extreme integration scenario coverage added (sparse/dense/high-noise behavior bounds)
   - Structural safety constraints added for edit execution (bridge/degree protection on edge drops)
   - Completed planner signal path for phase-rigor metrics (`critical_slowing`, `hysteresis_proxy`)
+  - Core completion/readiness checklist and automated readiness tests added
   - Analyzer configuration object for domain tuning (`FlowAnalyzerConfig`: thresholds, weights, lag)
   - Unit tests for dynamics and flow analysis
 - Missing:
@@ -237,3 +238,4 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added phase-rigor-constrained planning and improved rollout forecast dynamics.
 - 2026-02-15: Added calibration hooks, objective-term observability, and extreme scenario integration tests.
 - 2026-02-15: Added structural drop-safety constraints and finalized phase-rigor constrained planner path.
+- 2026-02-15: Added core readiness checklist and automated readiness verification tests.

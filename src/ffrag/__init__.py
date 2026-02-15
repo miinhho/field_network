@@ -19,6 +19,8 @@ from .flow import (
     FlowFieldDynamics,
     FlowDynamicsAnalyzer,
     GraphAdjustmentResult,
+    SimplicialTopologyModel,
+    SimplicialTopologyResult,
     TopologicalControlResult,
     TopologicalFlowController,
 )
@@ -42,4 +44,6 @@ __all__ = [
     "TopologicalControlResult",
     "ClusterFlowController",
     "ClusterPlanResult",
+    "SimplicialTopologyModel",
+    "SimplicialTopologyResult",
 ]

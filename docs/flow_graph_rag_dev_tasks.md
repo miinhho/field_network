@@ -152,9 +152,10 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Closed-loop stability monitoring (saturation ratio, oscillation index, convergence gate in core cycle)
   - Objective-aware control adaptation (objective score tracked and used for gain updates/convergence)
   - Topological rigor upgrade with Hodge-like decomposition metrics (`gradient/curl/harmonic` ratios)
-  - Higher-order topology signal integrated (`higher_order_pressure` from 4-cycle style loop density)
+  - Higher-order topology signal integrated (`higher_order_pressure`) and upgraded to simplicial approximation (triangle/tetra clique participation)
   - One-step lookahead gain selection for control parameters (`k_div`, `residual_damping`, `k_higher`)
   - Multiscale control path (`ClusterFlowController`): coarse cluster control + micro topological refinement
+  - Multi-step lookahead objective rollout for gain search and stricter cross-scale convergence gate
   - Predict/intervene integration with dynamics snapshots
   - Transition/resilience analysis (`transition_matrix`, `recovery_rate`, `hysteresis_index`)
   - Basin/trigger and recovery-path metrics (`overshoot`, `settling_time`, `path_efficiency`)
@@ -167,8 +168,8 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Basin boundary calibration against domain data (current boundary uses centroid + std radius)
   - Domain-specific trigger thresholds (currently global constants)
   - Dynamic graph adjustment policy learning/calibration from real outcomes
-  - Stronger control optimization (current multiscale + lookahead is still local, not global optimizer)
-  - More rigorous high-order topology modeling (cell/simplicial complex level, currently graph-cycle approximation)
+  - Stronger control optimization (current multistep lookahead is still local horizon, not global optimizer)
+  - Persistent/topological-history aware phase-change detection (current simplicial term is per-step snapshot only)
   - Evaluation protocol redesign for dynamics validity (non-leaky ground truth)
   - Real GraphRAG generation path (current baseline remains retrieval-heavy)
 
@@ -201,3 +202,5 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added higher-order pressure metric and control term from 4-cycle style topology signal.
 - 2026-02-15: Added one-step lookahead objective search for control gain selection.
 - 2026-02-15: Added multiscale coarse-to-fine control (`ClusterFlowController`) and cross-scale metrics.
+- 2026-02-15: Upgraded to multi-step discounted lookahead and tightened convergence with cross-scale consistency condition.
+- 2026-02-15: Added simplicial topology module and wired `simplex_density`/`topological_tension` into control objective and pipeline metrics.

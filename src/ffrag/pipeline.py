@@ -43,6 +43,8 @@ class _CoreCycleSummary:
     mean_curl_ratio: float
     mean_harmonic_ratio: float
     mean_higher_order_pressure: float
+    mean_simplex_density: float
+    mean_topological_tension: float
     mean_cluster_objective: float
     mean_cross_scale_consistency: float
     mean_micro_refinement_gain: float
@@ -145,6 +147,8 @@ class FlowGraphRAG:
             "curl_ratio": float(cycle.mean_curl_ratio),
             "harmonic_ratio": float(cycle.mean_harmonic_ratio),
             "higher_order_pressure": float(cycle.mean_higher_order_pressure),
+            "simplex_density": float(cycle.mean_simplex_density),
+            "topological_tension": float(cycle.mean_topological_tension),
             "cluster_objective": float(cycle.mean_cluster_objective),
             "cross_scale_consistency": float(cycle.mean_cross_scale_consistency),
             "micro_refinement_gain": float(cycle.mean_micro_refinement_gain),
@@ -220,6 +224,10 @@ class FlowGraphRAG:
             "intervention_harmonic_ratio": float(intervention_cycle.mean_harmonic_ratio),
             "baseline_higher_order_pressure": float(baseline_cycle.mean_higher_order_pressure),
             "intervention_higher_order_pressure": float(intervention_cycle.mean_higher_order_pressure),
+            "baseline_simplex_density": float(baseline_cycle.mean_simplex_density),
+            "intervention_simplex_density": float(intervention_cycle.mean_simplex_density),
+            "baseline_topological_tension": float(baseline_cycle.mean_topological_tension),
+            "intervention_topological_tension": float(intervention_cycle.mean_topological_tension),
             "baseline_cluster_objective": float(baseline_cycle.mean_cluster_objective),
             "intervention_cluster_objective": float(intervention_cycle.mean_cluster_objective),
             "baseline_cross_scale_consistency": float(baseline_cycle.mean_cross_scale_consistency),
@@ -306,6 +314,8 @@ class FlowGraphRAG:
         curl_ratios: list[float] = []
         harmonic_ratios: list[float] = []
         higher_pressures: list[float] = []
+        simplex_densities: list[float] = []
+        topological_tensions: list[float] = []
         cluster_objectives: list[float] = []
         cross_scale_consistency: list[float] = []
         micro_refinement_gain: list[float] = []
@@ -343,6 +353,8 @@ class FlowGraphRAG:
             curl_ratios.append(control.curl_ratio)
             harmonic_ratios.append(control.harmonic_ratio)
             higher_pressures.append(control.higher_order_pressure_mean)
+            simplex_densities.append(control.simplex_density)
+            topological_tensions.append(control.topological_tension)
             cluster_objectives.append(cluster_plan.cluster_objective)
             cross_scale_consistency.append(cluster_plan.cross_scale_consistency)
             micro_refinement_gain.append(max(0.0, cluster_plan.cluster_objective - control.objective_score))
@@ -354,7 +366,10 @@ class FlowGraphRAG:
                 stable_div = control.divergence_norm_after <= max(0.12, 0.8 * control.divergence_norm_before)
                 stable_shift = abs(adjustment.mean_weight_shift) < 0.02
                 objective_flat = self._objective_flat(objective_scores, window=2, tol=0.01)
-                if stable_dist and stable_div and stable_shift and objective_flat:
+                stable_cross_scale = (
+                    bool(cross_scale_consistency) and cross_scale_consistency[-1] >= 0.55
+                )
+                if stable_dist and stable_div and stable_shift and objective_flat and stable_cross_scale:
                     stable_streak += 1
                 else:
                     stable_streak = 0
@@ -373,6 +388,10 @@ class FlowGraphRAG:
         mean_curl_ratio = sum(curl_ratios) / len(curl_ratios) if curl_ratios else 0.0
         mean_harmonic_ratio = sum(harmonic_ratios) / len(harmonic_ratios) if harmonic_ratios else 0.0
         mean_higher_pressure = sum(higher_pressures) / len(higher_pressures) if higher_pressures else 0.0
+        mean_simplex_density = sum(simplex_densities) / len(simplex_densities) if simplex_densities else 0.0
+        mean_topological_tension = (
+            sum(topological_tensions) / len(topological_tensions) if topological_tensions else 0.0
+        )
         mean_cluster_obj = sum(cluster_objectives) / len(cluster_objectives) if cluster_objectives else 0.0
         mean_consistency = (
             sum(cross_scale_consistency) / len(cross_scale_consistency) if cross_scale_consistency else 0.0
@@ -410,6 +429,8 @@ class FlowGraphRAG:
             mean_curl_ratio=mean_curl_ratio,
             mean_harmonic_ratio=mean_harmonic_ratio,
             mean_higher_order_pressure=mean_higher_pressure,
+            mean_simplex_density=mean_simplex_density,
+            mean_topological_tension=mean_topological_tension,
             mean_cluster_objective=mean_cluster_obj,
             mean_cross_scale_consistency=mean_consistency,
             mean_micro_refinement_gain=mean_refinement_gain,

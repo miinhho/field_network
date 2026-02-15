@@ -46,6 +46,9 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - Higher-order topological pressure term (4-cycle style loop pressure) included in node control input
 - One-step lookahead objective minimization for control gain selection (`k_div`, `residual_damping`, `k_higher`)
 - Coarse-to-fine multiscale control added: cluster-level planning followed by node-level topological refinement
+- Multi-step lookahead objective rollout added for control gain selection (short horizon discounted planning)
+- Simplicial topology approximation integrated (`triangle`/`tetra` cliques) and fed into control as higher-order node pressure
+- Topological tension (participation variance over simplices) integrated as objective penalty term
 
 ### Layer 3: Answer Composer + Guardrails
 
@@ -105,3 +108,5 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - 2026-02-15: Added higher-order topological pressure signal to control objectives.
 - 2026-02-15: Added one-step lookahead control gain selection to reduce local objective per cycle.
 - 2026-02-15: Added multiscale (cluster -> node) control loop for global-to-local flow stabilization.
+- 2026-02-15: Upgraded gain search from one-step to multi-step discounted lookahead.
+- 2026-02-15: Replaced graph-cycle higher-order proxy with simplicial topology model and added topological tension penalty.

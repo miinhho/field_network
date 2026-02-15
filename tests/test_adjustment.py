@@ -60,6 +60,10 @@ class AdjustmentTests(unittest.TestCase):
         self.assertLessEqual(out.impact_noise, 1.0)
         self.assertGreaterEqual(out.coupling_penalty, 0.0)
         self.assertLessEqual(out.coupling_penalty, 1.0)
+        self.assertGreaterEqual(out.applied_new_edges, 0)
+        self.assertGreaterEqual(out.applied_drop_edges, 0)
+        self.assertLessEqual(out.applied_new_edges, len(out.suggested_new_edges))
+        self.assertLessEqual(out.applied_drop_edges, len(out.suggested_drop_edges))
 
     def test_phase_aware_adjustment_becomes_conservative(self) -> None:
         adjuster = DynamicGraphAdjuster()
@@ -83,6 +87,7 @@ class AdjustmentTests(unittest.TestCase):
         self.assertLessEqual(len(risky.suggested_drop_edges), len(base.suggested_drop_edges))
         self.assertGreaterEqual(risky.adjustment_objective_score, base.adjustment_objective_score - 1e-6)
         self.assertLessEqual(risky.selected_adjustment_scale, base.selected_adjustment_scale + 1e-6)
+        self.assertLessEqual(risky.applied_new_edges + risky.applied_drop_edges, base.applied_new_edges + base.applied_drop_edges)
 
     def test_sparse_vs_dense_adaptive_profile(self) -> None:
         adjuster = DynamicGraphAdjuster()

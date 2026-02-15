@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from itertools import combinations
 
 import numpy as np
@@ -20,6 +21,8 @@ class GraphAdjustmentResult:
     graph_density: float
     impact_noise: float
     coupling_penalty: float
+    applied_new_edges: int
+    applied_drop_edges: int
     suggested_new_edges: list[tuple[str, str]]
     suggested_drop_edges: list[tuple[str, str]]
 
@@ -32,10 +35,14 @@ class DynamicGraphAdjuster:
         learning_rate: float = 0.25,
         min_weight: float = 0.05,
         max_weight: float = 5.0,
+        max_structural_edits: int = 2,
+        apply_structural_edits: bool = True,
     ) -> None:
         self.learning_rate = learning_rate
         self.min_weight = min_weight
         self.max_weight = max_weight
+        self.max_structural_edits = max(0, max_structural_edits)
+        self.apply_structural_edits = apply_structural_edits
 
     def adjust(
         self,
@@ -121,6 +128,13 @@ class DynamicGraphAdjuster:
             phase_risk=phase_risk,
             density=density,
         )
+        applied_new, applied_drop = self._apply_structural_edits(
+            adjusted=adjusted,
+            suggested_new=suggested_new,
+            suggested_drop=suggested_drop,
+            phase_risk=phase_risk,
+            density=density,
+        )
         mean_shift = sum(shifts) / len(shifts) if shifts else 0.0
         mean_abs_shift = (sum(abs(v) for v in shifts) / len(shifts)) if shifts else 0.0
         objective = self._adjustment_objective(
@@ -131,8 +145,8 @@ class DynamicGraphAdjuster:
             density=density,
             impact_noise=impact_noise,
             coupling_penalty=coupling,
-            new_edge_count=len(suggested_new),
-            drop_edge_count=len(suggested_drop),
+            new_edge_count=applied_new,
+            drop_edge_count=applied_drop,
         )
 
         return GraphAdjustmentResult(
@@ -146,6 +160,8 @@ class DynamicGraphAdjuster:
             graph_density=round(density, 6),
             impact_noise=round(impact_noise, 6),
             coupling_penalty=round(coupling, 6),
+            applied_new_edges=applied_new,
+            applied_drop_edges=applied_drop,
             suggested_new_edges=suggested_new,
             suggested_drop_edges=suggested_drop,
         )
@@ -449,6 +465,70 @@ class DynamicGraphAdjuster:
         div_term = min(1.0, div_after / 2.0)
         energy_term = min(1.0, energy / 3.0)
         return max(0.0, min(1.0, 0.45 * residual + 0.3 * div_term + 0.25 * energy_term))
+
+    def _apply_structural_edits(
+        self,
+        adjusted: LayeredGraph,
+        suggested_new: list[tuple[str, str]],
+        suggested_drop: list[tuple[str, str]],
+        phase_risk: float,
+        density: float,
+    ) -> tuple[int, int]:
+        if not self.apply_structural_edits or self.max_structural_edits <= 0:
+            return 0, 0
+        budget_scale = (1.0 - 0.7 * max(0.0, min(1.0, phase_risk))) * (0.8 + 0.4 * max(0.0, min(1.0, density)))
+        budget = max(0, int(round(self.max_structural_edits * budget_scale)))
+        if budget <= 0:
+            return 0, 0
+
+        drop_budget = min(len(suggested_drop), budget // 2 if budget > 1 else 0)
+        new_budget = min(len(suggested_new), budget - drop_budget)
+
+        dropped = 0
+        for pair in suggested_drop[:drop_budget]:
+            key = tuple(sorted(pair))
+            idx = self._find_interaction_index(adjusted.interactions, key)
+            if idx is not None:
+                adjusted.interactions.pop(idx)
+                dropped += 1
+
+        existing = {tuple(sorted((e.source_id, e.target_id))) for e in adjusted.interactions}
+        added = 0
+        ts = self._base_timestamp(adjusted.interactions)
+        for i, (a, b) in enumerate(suggested_new[:new_budget]):
+            key = tuple(sorted((a, b)))
+            if a == b or key in existing:
+                continue
+            adjusted.interactions.append(
+                Interaction(
+                    interaction_id=f"auto_add_{len(adjusted.interactions)}_{i}",
+                    timestamp=ts + timedelta(seconds=i + 1),
+                    source_id=a,
+                    target_id=b,
+                    layer="adaptive",
+                    weight=round(self.min_weight * 1.4, 6),
+                )
+            )
+            existing.add(key)
+            added += 1
+        return added, dropped
+
+    def _find_interaction_index(self, interactions: list[Interaction], pair_key: tuple[str, str]) -> int | None:
+        best_idx: int | None = None
+        best_weight = float("inf")
+        for i, edge in enumerate(interactions):
+            key = tuple(sorted((edge.source_id, edge.target_id)))
+            if key != pair_key:
+                continue
+            if edge.weight < best_weight:
+                best_weight = edge.weight
+                best_idx = i
+        return best_idx
+
+    def _base_timestamp(self, interactions: list[Interaction]) -> datetime:
+        if not interactions:
+            return datetime.utcnow()
+        return max(edge.timestamp for edge in interactions)
 
     def _clip(self, value: float) -> float:
         return max(self.min_weight, min(self.max_weight, value))

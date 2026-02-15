@@ -170,6 +170,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Phase-aware rewiring candidate scoring upgraded (risk-adaptive stable-vs-exploratory scoring blend)
   - Adaptive weighting by graph profile added (density/noise-aware objective and planning candidates)
   - Control-adjustment coupling term added to adjustment objective (`coupling_penalty` from residual/divergence/energy)
+  - Structural-edit execution loop added (apply subset of suggested new/drop edges per cycle under risk-aware budget)
   - Analyzer configuration object for domain tuning (`FlowAnalyzerConfig`: thresholds, weights, lag)
   - Unit tests for dynamics and flow analysis
 - Missing:
@@ -221,3 +222,4 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added global adjustment-scale planner and phase-aware rewiring scoring strategy.
 - 2026-02-15: Added sparse/dense/noise-adaptive weighting and corresponding pipeline metrics.
 - 2026-02-15: Added control-adjustment coupling penalty and pipeline-level observability metrics.
+- 2026-02-15: Added applied structural edits in core cycle and observability metrics for applied new/drop counts.

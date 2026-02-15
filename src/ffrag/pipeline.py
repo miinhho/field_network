@@ -34,6 +34,8 @@ class _CoreCycleSummary:
     mean_graph_density: float
     mean_impact_noise: float
     mean_coupling_penalty: float
+    mean_applied_new_edges: float
+    mean_applied_drop_edges: float
     mean_suggested_new_edges: float
     mean_suggested_drop_edges: float
     mean_control_energy: float
@@ -126,6 +128,7 @@ class FlowGraphRAG:
             f"Adjustment scale={cycle.mean_adjustment_scale:.3f}.",
             f"Graph density/noise={cycle.mean_graph_density:.3f}/{cycle.mean_impact_noise:.3f}.",
             f"Control-adjust coupling penalty={cycle.mean_coupling_penalty:.3f}.",
+            f"Applied structural edits new/drop={cycle.mean_applied_new_edges:.2f}/{cycle.mean_applied_drop_edges:.2f}.",
             f"Topological control energy={cycle.mean_control_energy:.4f}, residual ratio={cycle.mean_residual_ratio:.4f}.",
             f"Phase regime={cycle.dominant_regime}; critical score={cycle.critical_transition_score:.3f}.",
         ]
@@ -155,6 +158,8 @@ class FlowGraphRAG:
             "graph_density": float(cycle.mean_graph_density),
             "impact_noise": float(cycle.mean_impact_noise),
             "coupling_penalty": float(cycle.mean_coupling_penalty),
+            "applied_new_edges": float(cycle.mean_applied_new_edges),
+            "applied_drop_edges": float(cycle.mean_applied_drop_edges),
             "suggested_new_edges": float(cycle.mean_suggested_new_edges),
             "suggested_drop_edges": float(cycle.mean_suggested_drop_edges),
             "control_energy": float(cycle.mean_control_energy),
@@ -245,6 +250,10 @@ class FlowGraphRAG:
             "intervention_impact_noise": float(intervention_cycle.mean_impact_noise),
             "baseline_coupling_penalty": float(baseline_cycle.mean_coupling_penalty),
             "intervention_coupling_penalty": float(intervention_cycle.mean_coupling_penalty),
+            "baseline_applied_new_edges": float(baseline_cycle.mean_applied_new_edges),
+            "intervention_applied_new_edges": float(intervention_cycle.mean_applied_new_edges),
+            "baseline_applied_drop_edges": float(baseline_cycle.mean_applied_drop_edges),
+            "intervention_applied_drop_edges": float(intervention_cycle.mean_applied_drop_edges),
             "baseline_strengthened_edges": float(baseline_cycle.total_strengthened),
             "intervention_strengthened_edges": float(intervention_cycle.total_strengthened),
             "baseline_control_energy": float(baseline_cycle.mean_control_energy),
@@ -357,6 +366,8 @@ class FlowGraphRAG:
         graph_densities: list[float] = []
         impact_noises: list[float] = []
         coupling_penalties: list[float] = []
+        applied_new_counts: list[int] = []
+        applied_drop_counts: list[int] = []
         new_edge_counts: list[int] = []
         drop_edge_counts: list[int] = []
         control_energies: list[float] = []
@@ -435,6 +446,8 @@ class FlowGraphRAG:
             graph_densities.append(adjustment.graph_density)
             impact_noises.append(adjustment.impact_noise)
             coupling_penalties.append(adjustment.coupling_penalty)
+            applied_new_counts.append(adjustment.applied_new_edges)
+            applied_drop_counts.append(adjustment.applied_drop_edges)
             new_edge_counts.append(len(adjustment.suggested_new_edges))
             drop_edge_counts.append(len(adjustment.suggested_drop_edges))
             control_energies.append(control.control_energy)
@@ -480,6 +493,8 @@ class FlowGraphRAG:
         mean_graph_density = sum(graph_densities) / len(graph_densities) if graph_densities else 0.0
         mean_impact_noise = sum(impact_noises) / len(impact_noises) if impact_noises else 0.0
         mean_coupling_penalty = sum(coupling_penalties) / len(coupling_penalties) if coupling_penalties else 0.0
+        mean_applied_new = sum(applied_new_counts) / len(applied_new_counts) if applied_new_counts else 0.0
+        mean_applied_drop = sum(applied_drop_counts) / len(applied_drop_counts) if applied_drop_counts else 0.0
         mean_new = sum(new_edge_counts) / len(new_edge_counts) if new_edge_counts else 0.0
         mean_drop = sum(drop_edge_counts) / len(drop_edge_counts) if drop_edge_counts else 0.0
         mean_energy = sum(control_energies) / len(control_energies) if control_energies else 0.0
@@ -527,6 +542,8 @@ class FlowGraphRAG:
             mean_graph_density=mean_graph_density,
             mean_impact_noise=mean_impact_noise,
             mean_coupling_penalty=mean_coupling_penalty,
+            mean_applied_new_edges=mean_applied_new,
+            mean_applied_drop_edges=mean_applied_drop,
             mean_suggested_new_edges=mean_new,
             mean_suggested_drop_edges=mean_drop,
             mean_control_energy=mean_energy,

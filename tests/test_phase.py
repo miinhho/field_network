@@ -49,6 +49,18 @@ class PhaseTransitionTests(unittest.TestCase):
         self.assertEqual(out.hysteresis_proxy_score, 0.0)
         self.assertEqual(out.dominant_regime, "calm")
 
+    def test_critical_slowing_signal_increases_for_persistent_series(self) -> None:
+        analyzer = PhaseTransitionAnalyzer()
+        trajectory = [{"transition_speed": 0.2}, {"transition_speed": 0.21}, {"transition_speed": 0.22}, {"transition_speed": 0.23}]
+        out = analyzer.analyze(
+            trajectory,
+            attractor_distances=[0.3, 0.31, 0.32, 0.33],
+            objective_scores=[0.4, 0.39, 0.38, 0.37],
+            topological_tensions=[0.2, 0.21, 0.22, 0.23],
+        )
+        self.assertGreaterEqual(out.critical_slowing_score, 0.0)
+        self.assertLessEqual(out.critical_slowing_score, 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

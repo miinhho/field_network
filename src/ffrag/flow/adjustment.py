@@ -64,16 +64,20 @@ class DynamicGraphAdjuster:
         viscosity = self._estimate_viscosity(state)
         instability = self._estimate_instability(state)
         phase_risk = self._phase_risk(phase_context)
+        slowing = self._phase_slowing(phase_context)
+        hysteresis = self._phase_hysteresis(phase_context)
         density, impact_noise = self._graph_profile(graph, impact_by_actant)
         coupling = self._control_coupling_penalty(control_context)
         lr_scale = 1.0 - 0.6 * phase_risk
-        planner_horizon = self._planner_horizon(density, impact_noise, phase_risk, coupling)
+        planner_horizon = self._planner_horizon(density, impact_noise, phase_risk, coupling, slowing, hysteresis)
         plan_scale, plan_budget = self._select_adjustment_plan(
             graph=graph,
             impact_by_actant=impact_by_actant,
             instability=instability,
             viscosity=viscosity,
             phase_risk=phase_risk,
+            slowing=slowing,
+            hysteresis=hysteresis,
             density=density,
             impact_noise=impact_noise,
             coupling_penalty=coupling,
@@ -138,6 +142,7 @@ class DynamicGraphAdjuster:
             suggested_drop=suggested_drop,
             phase_risk=phase_risk,
             density=density,
+            slowing=slowing,
             requested_budget=plan_budget,
         )
         mean_shift = sum(shifts) / len(shifts) if shifts else 0.0
@@ -330,6 +335,8 @@ class DynamicGraphAdjuster:
         instability: float,
         viscosity: float,
         phase_risk: float,
+        slowing: float,
+        hysteresis: float,
         density: float,
         impact_noise: float,
         coupling_penalty: float,
@@ -337,7 +344,7 @@ class DynamicGraphAdjuster:
         lr_scale: float,
     ) -> tuple[float, int]:
         scale_candidates = self._planner_candidates(density, impact_noise, phase_risk)
-        budget_candidates = self._planner_budget_candidates(phase_risk, density)
+        budget_candidates = self._planner_budget_candidates(phase_risk, slowing, hysteresis, density)
         best_scale = 1.0
         best_budget = 0
         best_obj = float("inf")
@@ -349,6 +356,8 @@ class DynamicGraphAdjuster:
                     instability=instability,
                     viscosity=viscosity,
                     phase_risk=phase_risk,
+                    slowing=slowing,
+                    hysteresis=hysteresis,
                     density=density,
                     impact_noise=impact_noise,
                     coupling_penalty=coupling_penalty,
@@ -370,6 +379,8 @@ class DynamicGraphAdjuster:
         instability: float,
         viscosity: float,
         phase_risk: float,
+        slowing: float,
+        hysteresis: float,
         density: float,
         impact_noise: float,
         coupling_penalty: float,
@@ -391,6 +402,7 @@ class DynamicGraphAdjuster:
             return 0.0
         mean_abs_shift = sum(abs(v) for v in base_shifts) / len(base_shifts)
         desired_shift = 0.06 + 0.1 * max(0.0, instability - 0.5 * viscosity) * (1.0 - 0.6 * phase_risk)
+        desired_shift *= max(0.5, 1.0 - 0.35 * slowing - 0.25 * hysteresis)
         under_adjust = max(0.0, desired_shift - mean_abs_shift)
         over_adjust = max(0.0, mean_abs_shift - (0.24 - 0.12 * phase_risk))
 
@@ -417,8 +429,11 @@ class DynamicGraphAdjuster:
             step_obj += 0.8 * under_adjust + 0.6 * over_adjust
             total += discount * step_obj
             # crude forecast: adjustment reduces instability a bit over horizon
-            inst = max(0.0, inst - 0.35 * mean_abs_shift - 0.08 * volatility)
-            risk = max(0.0, risk - 0.12 * mean_abs_shift)
+            damping = max(0.05, 1.0 - viscosity)
+            response = mean_abs_shift * damping * (1.0 - 0.45 * coupling_penalty)
+            rebound = 0.08 * risk * impact_noise + 0.04 * slowing
+            inst = max(0.0, inst - 0.28 * response - 0.06 * volatility + rebound)
+            risk = max(0.0, risk - 0.10 * response + 0.05 * hysteresis)
             discount *= 0.72
         return total
 
@@ -481,21 +496,23 @@ class DynamicGraphAdjuster:
         impact_noise: float,
         phase_risk: float,
         coupling_penalty: float,
+        slowing: float,
+        hysteresis: float,
     ) -> int:
-        if phase_risk > 0.75 or coupling_penalty > 0.8:
+        if phase_risk > 0.75 or coupling_penalty > 0.8 or slowing > 0.7:
             return 5
         if density < 0.2 and impact_noise < 0.45:
             return 4
-        if impact_noise > 0.75:
+        if impact_noise > 0.75 or hysteresis > 0.65:
             return 5
         if density > 0.7:
             return 3
         return 4
 
-    def _planner_budget_candidates(self, phase_risk: float, density: float) -> tuple[int, ...]:
+    def _planner_budget_candidates(self, phase_risk: float, slowing: float, hysteresis: float, density: float) -> tuple[int, ...]:
         if self.max_structural_edits <= 0:
             return (0,)
-        if phase_risk > 0.8:
+        if phase_risk > 0.8 or slowing > 0.75 or hysteresis > 0.7:
             return (0, 1)
         upper = max(1, self.max_structural_edits)
         if density < 0.2:
@@ -519,11 +536,16 @@ class DynamicGraphAdjuster:
         suggested_drop: list[tuple[str, str]],
         phase_risk: float,
         density: float,
+        slowing: float,
         requested_budget: int,
     ) -> tuple[int, int]:
         if not self.apply_structural_edits or self.max_structural_edits <= 0:
             return 0, 0
-        budget_scale = (1.0 - 0.7 * max(0.0, min(1.0, phase_risk))) * (0.8 + 0.4 * max(0.0, min(1.0, density)))
+        budget_scale = (
+            (1.0 - 0.7 * max(0.0, min(1.0, phase_risk)))
+            * (0.8 + 0.4 * max(0.0, min(1.0, density)))
+            * (1.0 - 0.5 * max(0.0, min(1.0, slowing)))
+        )
         allowed = max(0, int(round(self.max_structural_edits * budget_scale)))
         budget = max(0, min(int(requested_budget), allowed))
         if budget <= 0:
@@ -577,6 +599,16 @@ class DynamicGraphAdjuster:
         if not interactions:
             return datetime.utcnow()
         return max(edge.timestamp for edge in interactions)
+
+    def _phase_slowing(self, phase_context: dict[str, float] | None) -> float:
+        if not phase_context:
+            return 0.0
+        return max(0.0, min(1.0, float(phase_context.get("critical_slowing_score", 0.0))))
+
+    def _phase_hysteresis(self, phase_context: dict[str, float] | None) -> float:
+        if not phase_context:
+            return 0.0
+        return max(0.0, min(1.0, float(phase_context.get("hysteresis_proxy_score", 0.0))))
 
     def _clip(self, value: float) -> float:
         return max(self.min_weight, min(self.max_weight, value))

@@ -127,6 +127,34 @@ class AdjustmentTests(unittest.TestCase):
         self.assertGreaterEqual(unstable.coupling_penalty, base.coupling_penalty)
         self.assertGreaterEqual(unstable.adjustment_objective_score, base.adjustment_objective_score - 1e-6)
 
+    def test_phase_slowing_reduces_edit_budget(self) -> None:
+        adjuster = DynamicGraphAdjuster()
+        base = adjuster.adjust(
+            self._dense_graph(),
+            impact_by_actant={"a": 1.0, "b": 0.9, "c": 0.8, "d": 0.7, "e": 0.6},
+            state={"transition_speed": 0.5, "temporal_regularity": 0.4, "schedule_density": 3.0},
+            phase_context={
+                "critical_transition_score": 0.35,
+                "early_warning_score": 0.3,
+                "coherence_break_score": 0.2,
+                "critical_slowing_score": 0.1,
+                "hysteresis_proxy_score": 0.1,
+            },
+        )
+        slowed = adjuster.adjust(
+            self._dense_graph(),
+            impact_by_actant={"a": 1.0, "b": 0.9, "c": 0.8, "d": 0.7, "e": 0.6},
+            state={"transition_speed": 0.5, "temporal_regularity": 0.4, "schedule_density": 3.0},
+            phase_context={
+                "critical_transition_score": 0.35,
+                "early_warning_score": 0.3,
+                "coherence_break_score": 0.2,
+                "critical_slowing_score": 0.9,
+                "hysteresis_proxy_score": 0.8,
+            },
+        )
+        self.assertLessEqual(slowed.selected_edit_budget, base.selected_edit_budget)
+
 
 if __name__ == "__main__":
     unittest.main()

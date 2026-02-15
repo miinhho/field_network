@@ -445,6 +445,8 @@ class FlowGraphRAG:
                 "critical_transition_score": phase_context.critical_transition_score,
                 "early_warning_score": phase_context.early_warning_score,
                 "coherence_break_score": phase_context.coherence_break_score,
+                "critical_slowing_score": phase_context.critical_slowing_score,
+                "hysteresis_proxy_score": phase_context.hysteresis_proxy_score,
             }
             adjustment = self.adjuster.adjust(
                 current_graph,

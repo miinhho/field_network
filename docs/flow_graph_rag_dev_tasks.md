@@ -174,6 +174,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Adaptive planner horizon added to adjustment rollout (risk/density/noise/coupling aware)
   - Phase-change rigor upgraded with critical-slowing and hysteresis-proxy metrics
   - Joint plan optimization added for adjustment scale + structural edit budget (`selected_edit_budget`)
+  - Planner forecast model refined with damping/rebound dynamics; phase-rigor signals now constrain budget/horizon
   - Analyzer configuration object for domain tuning (`FlowAnalyzerConfig`: thresholds, weights, lag)
   - Unit tests for dynamics and flow analysis
 - Missing:
@@ -228,3 +229,4 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added applied structural edits in core cycle and observability metrics for applied new/drop counts.
 - 2026-02-15: Added adaptive planner horizon and upgraded phase-change metrics for long-history-like signals.
 - 2026-02-15: Added joint plan search over scale and edit-budget for cumulative objective minimization.
+- 2026-02-15: Added phase-rigor-constrained planning and improved rollout forecast dynamics.

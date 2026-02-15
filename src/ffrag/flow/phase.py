@@ -8,6 +8,7 @@ class PhaseTransitionResult:
     critical_transition_score: float
     early_warning_score: float
     regime_switch_count: int
+    regime_persistence_score: float
     coherence_break_score: float
     dominant_regime: str
 
@@ -34,7 +35,7 @@ class PhaseTransitionAnalyzer:
     ) -> PhaseTransitionResult:
         n = max(len(trajectory), len(attractor_distances), len(objective_scores), len(topological_tensions))
         if n == 0:
-            return PhaseTransitionResult(0.0, 0.0, 0, 0.0, "calm")
+            return PhaseTransitionResult(0.0, 0.0, 0, 0.0, 0.0, "calm")
 
         speed_series = [float(point.get("transition_speed", 0.0)) for point in trajectory]
         speed_series = self._align(speed_series, n)
@@ -67,6 +68,7 @@ class PhaseTransitionAnalyzer:
                 switches += 1
 
         dominant_regime = self._dominant(regime_labels)
+        persistence = self._regime_persistence(regime_labels, dominant_regime)
         coherence_break = self._coherence_break(dist_n, objective_n, tension_n)
 
         local_var = self._variance(order[-3:]) if len(order) >= 3 else order_var
@@ -87,6 +89,7 @@ class PhaseTransitionAnalyzer:
             critical_transition_score=round(critical, 6),
             early_warning_score=round(warning, 6),
             regime_switch_count=switches,
+            regime_persistence_score=round(persistence, 6),
             coherence_break_score=round(coherence_break, 6),
             dominant_regime=dominant_regime,
         )
@@ -149,6 +152,22 @@ class PhaseTransitionAnalyzer:
             if d_obj * d_tension < 0:
                 mismatch += 0.5
         return self._clip(mismatch / (1.5 * (n - 1)))
+
+    def _regime_persistence(self, labels: list[str], dominant: str) -> float:
+        if not labels:
+            return 0.0
+        longest = 1
+        current = 1
+        for i in range(1, len(labels)):
+            if labels[i] == labels[i - 1]:
+                current += 1
+            else:
+                longest = max(longest, current)
+                current = 1
+        longest = max(longest, current)
+        dominant_occ = sum(1 for x in labels if x == dominant) / len(labels)
+        # Blend temporal continuity (longest run) with occupancy dominance.
+        return self._clip(0.6 * (longest / len(labels)) + 0.4 * dominant_occ)
 
     def _clip(self, value: float) -> float:
         return max(0.0, min(1.0, value))

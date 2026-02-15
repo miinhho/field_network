@@ -45,13 +45,14 @@ class ClusterFlowController:
         graph: LayeredGraph,
         impact_by_actant: dict[str, float],
         state: dict[str, float],
+        phase_signal: float = 0.0,
     ) -> ClusterPlanResult:
         clusters = self._clusters(graph)
         assignment = self._assignment(clusters)
         cluster_graph = self._cluster_graph(graph, assignment)
         cluster_impact = self._cluster_impact(assignment, impact_by_actant)
 
-        coarse_out = self.coarse_controller.compute(cluster_graph, cluster_impact, state)
+        coarse_out = self.coarse_controller.compute(cluster_graph, cluster_impact, state, phase_signal=phase_signal)
         cluster_control = coarse_out.node_control
 
         coarse_controlled = {}

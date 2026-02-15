@@ -88,6 +88,7 @@ class TopologicalFlowController:
         graph: LayeredGraph,
         impact_by_actant: dict[str, float],
         state: dict[str, float],
+        phase_signal: float = 0.0,
     ) -> TopologicalControlResult:
         nodes = list(graph.actants.keys())
         if not nodes or not graph.interactions:
@@ -161,10 +162,12 @@ class TopologicalFlowController:
         self.k_div = k_div
         self.residual_damping = residual_damping
         self.k_higher = k_higher
+        self._phase_safety_clamp(phase_signal)
 
         f_controlled = f - self.residual_damping * residual - self.k_harmonic * harmonic
         div_after = B @ f_controlled
 
+        effective_clip = self._effective_clip(phase_signal)
         u = (
             -self.k_div * div_before
             - self.k_phi * phi
@@ -174,7 +177,7 @@ class TopologicalFlowController:
             - self.k_curl * curl_pressure
             - self.k_harmonic * harmonic_pressure
         )
-        u = np.clip(u, -self.control_clip, self.control_clip)
+        u = np.clip(u, -effective_clip, effective_clip)
 
         node_control = {node: float(round(u[node_index[node]], 6)) for node in nodes}
         controlled_impact = {
@@ -183,7 +186,7 @@ class TopologicalFlowController:
 
         residual_ratio = float(np.linalg.norm(residual) / (np.linalg.norm(f) + 1e-9))
         energy = float(np.sum(u * u))
-        sat = float(np.mean(np.abs(u) >= (0.98 * self.control_clip)))
+        sat = float(np.mean(np.abs(u) >= (0.98 * effective_clip)))
         grad_norm = float(np.linalg.norm(gradient_flow))
         curl_norm = float(np.linalg.norm(curl_flow))
         harmonic_norm = float(np.linalg.norm(harmonic))
@@ -224,6 +227,25 @@ class TopologicalFlowController:
             simplex_density=round(float(topo.simplex_density), 6),
             topological_tension=round(float(topo.topological_tension), 6),
         )
+
+    def _phase_safety_clamp(self, phase_signal: float) -> None:
+        risk = max(0.0, min(1.0, float(phase_signal)))
+        if risk <= 1e-6:
+            return
+        damp = 1.0 - (0.22 * risk)
+        self.k_div = min(self._k_div_bounds[1], max(self._k_div_bounds[0], self.k_div * damp))
+        self.residual_damping = min(
+            self._residual_bounds[1],
+            max(self._residual_bounds[0], self.residual_damping * (1.0 - 0.18 * risk)),
+        )
+        self.k_higher = min(
+            self._k_higher_bounds[1],
+            max(self._k_higher_bounds[0], self.k_higher * (1.0 - 0.2 * risk)),
+        )
+
+    def _effective_clip(self, phase_signal: float) -> float:
+        risk = max(0.0, min(1.0, float(phase_signal)))
+        return max(0.35, self.control_clip * (1.0 - 0.35 * risk))
 
     def _adapt_gains(
         self,

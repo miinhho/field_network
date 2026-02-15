@@ -38,6 +38,26 @@ class AdjustmentTests(unittest.TestCase):
         self.assertGreaterEqual(len(out.suggested_drop_edges), 0)
         self.assertGreaterEqual(len(out.suggested_new_edges), 0)
 
+    def test_phase_aware_adjustment_becomes_conservative(self) -> None:
+        adjuster = DynamicGraphAdjuster()
+        base = adjuster.adjust(
+            self._graph(),
+            impact_by_actant={"a": 1.0, "b": 0.8, "c": 0.2},
+            state={"transition_speed": 0.7, "temporal_regularity": 0.3, "schedule_density": 4.0},
+        )
+        risky = adjuster.adjust(
+            self._graph(),
+            impact_by_actant={"a": 1.0, "b": 0.8, "c": 0.2},
+            state={"transition_speed": 0.7, "temporal_regularity": 0.3, "schedule_density": 4.0},
+            phase_context={
+                "critical_transition_score": 0.9,
+                "early_warning_score": 0.8,
+                "coherence_break_score": 0.7,
+            },
+        )
+        self.assertLessEqual(abs(risky.mean_weight_shift), abs(base.mean_weight_shift) + 1e-6)
+        self.assertLessEqual(len(risky.suggested_new_edges), len(base.suggested_new_edges))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,6 +37,7 @@ class DynamicGraphAdjuster:
         graph: LayeredGraph,
         impact_by_actant: dict[str, float],
         state: dict[str, float],
+        phase_context: dict[str, float] | None = None,
     ) -> GraphAdjustmentResult:
         adjusted = LayeredGraph(
             graph_id=f"{graph.graph_id}:adjusted",
@@ -47,6 +48,8 @@ class DynamicGraphAdjuster:
 
         viscosity = self._estimate_viscosity(state)
         instability = self._estimate_instability(state)
+        phase_risk = self._phase_risk(phase_context)
+        lr_scale = 1.0 - 0.6 * phase_risk
 
         strengthened = 0
         weakened = 0
@@ -58,7 +61,9 @@ class DynamicGraphAdjuster:
             dst_impact = float(impact_by_actant.get(edge.target_id, 0.0))
             pressure = 0.5 * (src_impact + dst_impact)
 
-            delta = self.learning_rate * ((0.22 * pressure) + (0.10 * instability) - (0.08 * viscosity))
+            delta = self.learning_rate * lr_scale * (
+                (0.22 * pressure) + (0.10 * instability) - (0.08 * viscosity) - (0.10 * phase_risk)
+            )
             if pressure < 0.08:
                 delta -= self.learning_rate * 0.04
 
@@ -85,8 +90,8 @@ class DynamicGraphAdjuster:
                 )
             )
 
-        suggested_new = self._suggest_new_edges(graph, impact_by_actant)
-        suggested_drop = self._suggest_drop_edges(adjusted, impact_by_actant)
+        suggested_new = self._suggest_new_edges(graph, impact_by_actant, phase_risk=phase_risk)
+        suggested_drop = self._suggest_drop_edges(adjusted, impact_by_actant, phase_risk=phase_risk)
         mean_shift = sum(shifts) / len(shifts) if shifts else 0.0
 
         return GraphAdjustmentResult(
@@ -104,6 +109,7 @@ class DynamicGraphAdjuster:
         graph: LayeredGraph,
         impact_by_actant: dict[str, float],
         max_edges: int = 3,
+        phase_risk: float = 0.0,
     ) -> list[tuple[str, str]]:
         existing = set()
         neighbors: dict[str, set[str]] = {node: set() for node in graph.actants.keys()}
@@ -134,19 +140,21 @@ class DynamicGraphAdjuster:
             scored_pairs.append((score, (a, b)))
 
         scored_pairs.sort(key=lambda item: item[0], reverse=True)
-        return [pair for _, pair in scored_pairs[:max_edges]]
+        limit = max(0, int(round(max_edges * (1.0 - 0.75 * max(0.0, min(1.0, phase_risk))))))
+        return [pair for _, pair in scored_pairs[:limit]]
 
     def _suggest_drop_edges(
         self,
         graph: LayeredGraph,
         impact_by_actant: dict[str, float],
         max_edges: int = 3,
+        phase_risk: float = 0.0,
     ) -> list[tuple[str, str]]:
         scored: list[tuple[float, tuple[str, str]]] = []
         for edge in graph.interactions:
             src_impact = float(impact_by_actant.get(edge.source_id, 0.0))
             dst_impact = float(impact_by_actant.get(edge.target_id, 0.0))
-            score = edge.weight + 0.2 * (src_impact + dst_impact)
+            score = edge.weight + 0.2 * (src_impact + dst_impact) + 0.25 * max(0.0, min(1.0, phase_risk))
             scored.append((score, (edge.source_id, edge.target_id)))
 
         scored.sort(key=lambda item: item[0])
@@ -194,6 +202,15 @@ class DynamicGraphAdjuster:
         entropy = float(state.get("social_entropy", 0.0))
         regularity = float(state.get("temporal_regularity", 0.0))
         return max(0.0, (0.7 * speed + 0.3 * entropy) - 0.25 * regularity)
+
+    def _phase_risk(self, phase_context: dict[str, float] | None) -> float:
+        if not phase_context:
+            return 0.0
+        critical = float(phase_context.get("critical_transition_score", 0.0))
+        warning = float(phase_context.get("early_warning_score", 0.0))
+        coherence = float(phase_context.get("coherence_break_score", 0.0))
+        risk = 0.55 * critical + 0.3 * warning + 0.15 * coherence
+        return max(0.0, min(1.0, risk))
 
     def _clip(self, value: float) -> float:
         return max(self.min_weight, min(self.max_weight, value))

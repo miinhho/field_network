@@ -49,6 +49,7 @@ class _CoreCycleSummary:
     critical_transition_score: float
     early_warning_score: float
     regime_switch_count: int
+    regime_persistence_score: float
     coherence_break_score: float
     dominant_regime: str
     mean_cluster_objective: float
@@ -163,6 +164,7 @@ class FlowGraphRAG:
             "critical_transition_score": float(cycle.critical_transition_score),
             "early_warning_score": float(cycle.early_warning_score),
             "regime_switch_count": float(cycle.regime_switch_count),
+            "regime_persistence_score": float(cycle.regime_persistence_score),
             "coherence_break_score": float(cycle.coherence_break_score),
         }
         evidence_ids = [f"perturbation:{p.perturbation_id}"]
@@ -253,6 +255,8 @@ class FlowGraphRAG:
             "intervention_early_warning_score": float(intervention_cycle.early_warning_score),
             "baseline_regime_switch_count": float(baseline_cycle.regime_switch_count),
             "intervention_regime_switch_count": float(intervention_cycle.regime_switch_count),
+            "baseline_regime_persistence_score": float(baseline_cycle.regime_persistence_score),
+            "intervention_regime_persistence_score": float(intervention_cycle.regime_persistence_score),
             "baseline_coherence_break_score": float(baseline_cycle.coherence_break_score),
             "intervention_coherence_break_score": float(intervention_cycle.coherence_break_score),
         }
@@ -343,6 +347,7 @@ class FlowGraphRAG:
         converged = False
         stable_streak = 0
         last_impact: dict[str, float] = {}
+        prev_phase_context: dict[str, float] = {}
 
         for _ in range(max(1, cycles)):
             propagation = self.simulator.propagate(current_graph, perturbation)
@@ -357,9 +362,32 @@ class FlowGraphRAG:
             trajectory.append(final_state)
             distance_series.append(final_distance)
 
-            cluster_plan = self.cluster_controller.plan(current_graph, propagation.impact_by_actant, final_state)
-            control = self.controller.compute(current_graph, cluster_plan.coarse_controlled_impact, final_state)
-            adjustment = self.adjuster.adjust(current_graph, control.controlled_impact, final_state)
+            phase_signal = float(prev_phase_context.get("critical_transition_score", 0.0))
+            cluster_plan = self.cluster_controller.plan(
+                current_graph,
+                propagation.impact_by_actant,
+                final_state,
+                phase_signal=phase_signal,
+            )
+            control = self.controller.compute(
+                current_graph,
+                cluster_plan.coarse_controlled_impact,
+                final_state,
+                phase_signal=phase_signal,
+            )
+            phase_context = self._phase_context_from_cycle(
+                prior_phase=prev_phase_context,
+                attractor_distance=final_distance,
+                objective_score=control.objective_score,
+                topological_tension=control.topological_tension,
+            )
+            adjustment = self.adjuster.adjust(
+                current_graph,
+                control.controlled_impact,
+                final_state,
+                phase_context=phase_context,
+            )
+            prev_phase_context = phase_context
             total_strengthened += adjustment.strengthened_edges
             total_weakened += adjustment.weakened_edges
             mean_shifts.append(adjustment.mean_weight_shift)
@@ -461,12 +489,33 @@ class FlowGraphRAG:
             critical_transition_score=phase.critical_transition_score,
             early_warning_score=phase.early_warning_score,
             regime_switch_count=phase.regime_switch_count,
+            regime_persistence_score=phase.regime_persistence_score,
             coherence_break_score=phase.coherence_break_score,
             dominant_regime=phase.dominant_regime,
             mean_cluster_objective=mean_cluster_obj,
             mean_cross_scale_consistency=mean_consistency,
             mean_micro_refinement_gain=mean_refinement_gain,
         )
+
+    def _phase_context_from_cycle(
+        self,
+        prior_phase: dict[str, float],
+        attractor_distance: float,
+        objective_score: float,
+        topological_tension: float,
+    ) -> dict[str, float]:
+        prev_critical = float(prior_phase.get("critical_transition_score", 0.0))
+        dist_term = max(0.0, min(1.0, attractor_distance))
+        obj_term = max(0.0, min(1.0, objective_score / 3.0))
+        tension_term = max(0.0, min(1.0, topological_tension))
+        critical = max(0.0, min(1.0, 0.45 * prev_critical + 0.25 * dist_term + 0.2 * obj_term + 0.1 * tension_term))
+        warning = max(0.0, min(1.0, 0.6 * critical + 0.4 * tension_term))
+        coherence = max(0.0, min(1.0, abs(dist_term - obj_term)))
+        return {
+            "critical_transition_score": round(critical, 6),
+            "early_warning_score": round(warning, 6),
+            "coherence_break_score": round(coherence, 6),
+        }
 
     def _oscillation_index(self, values: list[float]) -> float:
         if len(values) < 3:

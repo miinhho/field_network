@@ -107,6 +107,7 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("critical_transition_score", answer.metrics_used)
         self.assertIn("early_warning_score", answer.metrics_used)
         self.assertIn("regime_switch_count", answer.metrics_used)
+        self.assertIn("regime_persistence_score", answer.metrics_used)
         self.assertIn("coherence_break_score", answer.metrics_used)
 
     def test_intervene_route_returns_rewiring_metric(self) -> None:
@@ -144,6 +145,8 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("intervention_critical_transition_score", answer.metrics_used)
         self.assertIn("baseline_early_warning_score", answer.metrics_used)
         self.assertIn("intervention_early_warning_score", answer.metrics_used)
+        self.assertIn("baseline_regime_persistence_score", answer.metrics_used)
+        self.assertIn("intervention_regime_persistence_score", answer.metrics_used)
 
     def test_guardrail_blocks_subjective_inference(self) -> None:
         answer = self.rag.run(self.graph, Query(text="describe"))

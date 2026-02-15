@@ -51,6 +51,23 @@ class TopologicalControlTests(unittest.TestCase):
         self.assertGreaterEqual(out.higher_order_pressure_mean, 0.0)
         self.assertGreaterEqual(out.gain_k_higher, 0.02)
 
+    def test_phase_signal_applies_safety_clamp(self) -> None:
+        low_controller = TopologicalFlowController()
+        high_controller = TopologicalFlowController()
+        low_risk = low_controller.compute(
+            self._graph(),
+            impact_by_actant={"n1": 1.2, "n2": 0.4, "n3": 0.1},
+            state={"transition_speed": 0.8, "temporal_regularity": 0.2, "schedule_density": 4.0},
+            phase_signal=0.0,
+        )
+        high_risk = high_controller.compute(
+            self._graph(),
+            impact_by_actant={"n1": 1.2, "n2": 0.4, "n3": 0.1},
+            state={"transition_speed": 0.8, "temporal_regularity": 0.2, "schedule_density": 4.0},
+            phase_signal=0.95,
+        )
+        self.assertLessEqual(high_risk.gain_k_div, low_risk.gain_k_div + 1e-6)
+
 
 if __name__ == "__main__":
     unittest.main()

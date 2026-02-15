@@ -69,6 +69,9 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - Extreme integration tests added for sparse/dense/high-noise-like scenarios
 - Structural safety constraints added to edit execution: edge drops now preserve endpoint minimum degree and avoid increasing connected-component count
 - Planner now jointly reasons over scale/budget with phase-rigor constraints (`critical_slowing`, `hysteresis_proxy`) propagated into adjustment policy
+- Synapse-like adaptive rewiring (planned): latent affinity state over non-edges (`A_ij`), eligibility traces (`E_ij`), and node plasticity budgets (`R_i`) to model gradual link formation/pruning
+- Supervisory adaptive controller (planned): higher-level feedback loop that monitors confusion/forgetting risks and modulates plasticity gains, rewiring thresholds, and pruning aggressiveness
+- Hysteresis-based edge lifecycle (planned): `theta_on > theta_off` to stabilize emergent-link creation/removal and avoid oscillatory rewiring
 
 ### Layer 3: Answer Composer + Guardrails
 
@@ -84,6 +87,20 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - `StateVector`: compact dynamic state representation
 - `Perturbation`: external shock or graph update
 - `PropagationResult`: impact spread and stabilization outputs
+- `LatentAffinityState`: non-edge coupling potential (`A_ij`) and eligibility traces (`E_ij`)
+- `PlasticityState`: node-level plasticity resources (`R_i`) with fatigue/recovery
+- `SupervisoryControlState`: global feedback signals (confusion risk, forgetting risk, diversity pressure)
+
+## Why Synapse-Like Effects Emerge Here
+
+Synapse-like effects appear naturally when a dynamic graph uses local reinforcement plus structural adaptation:
+
+1. Repeated co-activation drives positive feedback on coupling potential (`A_ij`)
+2. Reinforced couplings increase future co-activation probability (self-reinforcing loop)
+3. Weakly used couplings decay and eventually prune (activity-dependent forgetting)
+4. Without global constraints, systems move toward either rapid consensus/collapse or fragmentation
+
+This is why we add supervisory/homeostatic constraints rather than pure Hebbian-like local updates.
 
 ## Why This Differs From Plain GraphRAG
 
@@ -118,6 +135,8 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 2. Default simulation complexity (linear rules vs richer nonlinear operators)
 3. Minimal required confidence calibration in response schema
 4. Evaluation protocol for dynamics validity before any comparative benchmark claims
+5. Latent-affinity candidate policy at scale (Top-K neighborhood vs ANN candidates vs mixed)
+6. Supervisory controller policy form (rule-based first vs learned policy later)
 
 ## Change Log
 
@@ -150,3 +169,4 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - 2026-02-15: Updated simulator to expose and render per-frame node positions with flow-driven advection so influence-induced node movement is visible (not static final-layout replay).
 - 2026-02-15: Added large-scale simulator support (parameterized synthetic graph generation for thousands of nodes, target fallback safety, and no-`scipy` layout fallback for high-node replay environments).
 - 2026-02-15: Added physically inspired node-motion mode (`position_model=physics`) using mass/velocity/damping/spring/field-force integration, and added separate WebGL replay renderer for large-graph visualization.
+- 2026-02-15: Revised architecture with adaptive-network evidence alignment: added planned latent-affinity/plasticity/hysteresis loop and a supervisory adaptive controller for confusion/forgetting stabilization.

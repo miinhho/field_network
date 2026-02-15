@@ -114,6 +114,24 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - Acceptance:
   - documented scaling breakpoints and migration guide
 
+14. Adaptive plasticity core
+- Deliverables:
+  - latent affinity state manager (`A_ij`, `E_ij`) with sparse candidate updates
+  - node plasticity budget dynamics (`R_i`: fatigue/recovery)
+  - hysteresis edge lifecycle (`theta_on`, `theta_off`) for emergent links/pruning
+- Acceptance:
+  - integration tests show stable emergent-link formation without rewiring oscillation
+  - long-run tests keep bounded edge churn under repeated perturbations
+
+15. Supervisory adaptive controller
+- Deliverables:
+  - confusion monitor (cluster margin, mixing entropy proxy)
+  - forgetting monitor (important-node retention and connectivity loss)
+  - policy hooks to modulate learning rates/thresholds/pruning budget at runtime
+- Acceptance:
+  - collapse and over-fragmentation scenarios trigger expected guardrail behavior
+  - tests confirm diversity floor and retention floor are maintained
+
 ## Suggested Milestones
 
 1. Milestone M1 (Week 1-2): Complete P0 tasks 1-3
@@ -193,6 +211,9 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Global optimization across multi-cycle graph rewiring (current phase-aware adjustment remains local-step policy)
   - Evaluation protocol redesign for dynamics validity (non-leaky ground truth)
   - Real GraphRAG generation path (current baseline remains retrieval-heavy)
+  - Adaptive plasticity state machine (`A/E/R`) for non-edge latent coupling
+  - Supervisory control loop for confusion/forgetting stabilization
+  - Hysteresis-based emergent-link lifecycle calibration (`theta_on/off`, dwell conditions)
 
 ## Edge-Case Review Checklist
 
@@ -201,6 +222,9 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 3. High viscosity states should still produce bounded velocities and stable updates
 4. Missing perturbation targets should fall back to deterministic default behavior
 5. Transition triggers should be optional and robust to single-step trajectories
+6. Emergent-link update must avoid O(N^2) blow-up on large graphs via candidate filtering
+7. Plasticity exhaustion must not freeze graph permanently (recovery path required)
+8. Hysteresis thresholds must prevent flip-flop rewiring under noisy impacts
 
 ## Change Log
 
@@ -245,3 +269,4 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Fixed simulator replay to use per-frame node positions and added flow-advection displacement so node movement reflects dynamic influence each cycle.
 - 2026-02-15: Added CLI-scale controls for large synthetic graphs (`--nodes`, `--avg-degree`, `--seed`) and rendering controls (`--render-max-edges`, `--render-max-labels`) plus no-`scipy` layout fallback for large runs.
 - 2026-02-15: Added physics-based position update path (`--position-model physics`) and split high-scale renderer with `--format webgl` output for large graph replay.
+- 2026-02-15: Added design-aligned P2 tasks for adaptive plasticity (`A/E/R`) and supervisory adaptive control (confusion/forgetting guardrails with hysteresis rewiring lifecycle).

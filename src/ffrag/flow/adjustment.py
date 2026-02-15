@@ -23,10 +23,40 @@ class GraphAdjustmentResult:
     graph_density: float
     impact_noise: float
     coupling_penalty: float
+    objective_terms: dict[str, float]
     applied_new_edges: int
     applied_drop_edges: int
     suggested_new_edges: list[tuple[str, str]]
     suggested_drop_edges: list[tuple[str, str]]
+
+
+@dataclass(slots=True)
+class AdjustmentPlannerConfig:
+    # Objective term base weights
+    churn_weight_base: float = 0.38
+    churn_weight_density_gain: float = 0.22
+    volatility_weight_base: float = 0.28
+    volatility_weight_noise_gain: float = 0.28
+    rewiring_weight_base: float = 0.03
+    rewiring_weight_density_gain: float = 0.08
+    risk_weight_base: float = 0.28
+    risk_weight_gain: float = 0.22
+    coupling_weight_base: float = 0.2
+    coupling_weight_noise_gain: float = 0.2
+    # Rollout dynamics
+    rollout_discount: float = 0.72
+    under_adjust_penalty: float = 0.8
+    over_adjust_penalty: float = 0.6
+    # Candidate sets and thresholds
+    default_scale_candidates: tuple[float, ...] = (0.5, 0.8, 1.0, 1.2)
+    high_risk_scale_candidates: tuple[float, ...] = (0.4, 0.55, 0.7, 0.85)
+    sparse_scale_candidates: tuple[float, ...] = (0.7, 1.0, 1.25, 1.5)
+    dense_or_noisy_scale_candidates: tuple[float, ...] = (0.45, 0.65, 0.85, 1.0)
+    high_risk_threshold: float = 0.75
+    dense_threshold: float = 0.65
+    sparse_threshold: float = 0.2
+    noisy_threshold: float = 0.7
+    very_noisy_threshold: float = 0.75
 
 
 class DynamicGraphAdjuster:
@@ -39,12 +69,14 @@ class DynamicGraphAdjuster:
         max_weight: float = 5.0,
         max_structural_edits: int = 2,
         apply_structural_edits: bool = True,
+        planner_config: AdjustmentPlannerConfig | None = None,
     ) -> None:
         self.learning_rate = learning_rate
         self.min_weight = min_weight
         self.max_weight = max_weight
         self.max_structural_edits = max(0, max_structural_edits)
         self.apply_structural_edits = apply_structural_edits
+        self.planner_config = planner_config or AdjustmentPlannerConfig()
 
     def adjust(
         self,
@@ -158,6 +190,17 @@ class DynamicGraphAdjuster:
             new_edge_count=applied_new,
             drop_edge_count=applied_drop,
         )
+        objective_terms = self._objective_terms(
+            mean_abs_shift=mean_abs_shift,
+            instability=instability,
+            viscosity=viscosity,
+            phase_risk=phase_risk,
+            density=density,
+            impact_noise=impact_noise,
+            coupling_penalty=coupling,
+            new_edge_count=applied_new,
+            drop_edge_count=applied_drop,
+        )
 
         return GraphAdjustmentResult(
             adjusted_graph=adjusted,
@@ -172,6 +215,7 @@ class DynamicGraphAdjuster:
             graph_density=round(density, 6),
             impact_noise=round(impact_noise, 6),
             coupling_penalty=round(coupling, 6),
+            objective_terms=objective_terms,
             applied_new_edges=applied_new,
             applied_drop_edges=applied_drop,
             suggested_new_edges=suggested_new,
@@ -316,17 +360,54 @@ class DynamicGraphAdjuster:
         new_edge_count: int,
         drop_edge_count: int,
     ) -> float:
+        parts = self._objective_terms(
+            mean_abs_shift=mean_abs_shift,
+            instability=instability,
+            viscosity=viscosity,
+            phase_risk=phase_risk,
+            density=density,
+            impact_noise=impact_noise,
+            coupling_penalty=coupling_penalty,
+            new_edge_count=new_edge_count,
+            drop_edge_count=drop_edge_count,
+        )
+        return parts["total"]
+
+    def _objective_terms(
+        self,
+        mean_abs_shift: float,
+        instability: float,
+        viscosity: float,
+        phase_risk: float,
+        density: float,
+        impact_noise: float,
+        coupling_penalty: float,
+        new_edge_count: int,
+        drop_edge_count: int,
+    ) -> dict[str, float]:
         # Lower is better: small structural churn with stable dynamics under risk.
         churn = mean_abs_shift
         volatility = max(0.0, instability - viscosity)
-        churn_w = 0.38 + 0.22 * max(0.0, min(1.0, density))
-        volatility_w = 0.28 + 0.28 * max(0.0, min(1.0, impact_noise))
-        rewiring_w = 0.03 + 0.08 * max(0.0, min(1.0, density))
-        risk_w = 0.28 + 0.22 * max(0.0, min(1.0, phase_risk))
-        coupling_w = 0.2 + 0.2 * max(0.0, min(1.0, impact_noise))
+        cfg = self.planner_config
+        churn_w = cfg.churn_weight_base + cfg.churn_weight_density_gain * max(0.0, min(1.0, density))
+        volatility_w = cfg.volatility_weight_base + cfg.volatility_weight_noise_gain * max(0.0, min(1.0, impact_noise))
+        rewiring_w = cfg.rewiring_weight_base + cfg.rewiring_weight_density_gain * max(0.0, min(1.0, density))
+        risk_w = cfg.risk_weight_base + cfg.risk_weight_gain * max(0.0, min(1.0, phase_risk))
+        coupling_w = cfg.coupling_weight_base + cfg.coupling_weight_noise_gain * max(0.0, min(1.0, impact_noise))
         rewiring_cost = rewiring_w * (new_edge_count + drop_edge_count)
         risk_penalty = risk_w * phase_risk
-        return churn_w * churn + volatility_w * volatility + rewiring_cost + risk_penalty + coupling_w * coupling_penalty
+        churn_term = churn_w * churn
+        volatility_term = volatility_w * volatility
+        coupling_term = coupling_w * coupling_penalty
+        total = churn_term + volatility_term + rewiring_cost + risk_penalty + coupling_term
+        return {
+            "churn": round(churn_term, 6),
+            "volatility": round(volatility_term, 6),
+            "rewiring": round(rewiring_cost, 6),
+            "risk": round(risk_penalty, 6),
+            "coupling": round(coupling_term, 6),
+            "total": round(total, 6),
+        }
 
     def _select_adjustment_plan(
         self,
@@ -426,7 +507,8 @@ class DynamicGraphAdjuster:
                 new_edge_count=est_new,
                 drop_edge_count=est_drop,
             )
-            step_obj += 0.8 * under_adjust + 0.6 * over_adjust
+            step_obj += self.planner_config.under_adjust_penalty * under_adjust
+            step_obj += self.planner_config.over_adjust_penalty * over_adjust
             total += discount * step_obj
             # crude forecast: adjustment reduces instability a bit over horizon
             damping = max(0.05, 1.0 - viscosity)
@@ -434,7 +516,7 @@ class DynamicGraphAdjuster:
             rebound = 0.08 * risk * impact_noise + 0.04 * slowing
             inst = max(0.0, inst - 0.28 * response - 0.06 * volatility + rebound)
             risk = max(0.0, risk - 0.10 * response + 0.05 * hysteresis)
-            discount *= 0.72
+            discount *= self.planner_config.rollout_discount
         return total
 
     def _simulate_shifts(
@@ -482,13 +564,14 @@ class DynamicGraphAdjuster:
         return density, noise
 
     def _planner_candidates(self, density: float, impact_noise: float, phase_risk: float) -> tuple[float, ...]:
-        if phase_risk > 0.75:
-            return (0.4, 0.55, 0.7, 0.85)
-        if density < 0.2 and impact_noise < 0.55:
-            return (0.7, 1.0, 1.25, 1.5)
-        if density > 0.65 or impact_noise > 0.7:
-            return (0.45, 0.65, 0.85, 1.0)
-        return (0.5, 0.8, 1.0, 1.2)
+        cfg = self.planner_config
+        if phase_risk > cfg.high_risk_threshold:
+            return cfg.high_risk_scale_candidates
+        if density < cfg.sparse_threshold and impact_noise < 0.55:
+            return cfg.sparse_scale_candidates
+        if density > cfg.dense_threshold or impact_noise > cfg.noisy_threshold:
+            return cfg.dense_or_noisy_scale_candidates
+        return cfg.default_scale_candidates
 
     def _planner_horizon(
         self,
@@ -499,11 +582,12 @@ class DynamicGraphAdjuster:
         slowing: float,
         hysteresis: float,
     ) -> int:
-        if phase_risk > 0.75 or coupling_penalty > 0.8 or slowing > 0.7:
+        cfg = self.planner_config
+        if phase_risk > cfg.high_risk_threshold or coupling_penalty > 0.8 or slowing > 0.7:
             return 5
         if density < 0.2 and impact_noise < 0.45:
             return 4
-        if impact_noise > 0.75 or hysteresis > 0.65:
+        if impact_noise > cfg.very_noisy_threshold or hysteresis > 0.65:
             return 5
         if density > 0.7:
             return 3

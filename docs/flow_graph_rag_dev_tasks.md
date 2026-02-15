@@ -175,6 +175,9 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Phase-change rigor upgraded with critical-slowing and hysteresis-proxy metrics
   - Joint plan optimization added for adjustment scale + structural edit budget (`selected_edit_budget`)
   - Planner forecast model refined with damping/rebound dynamics; phase-rigor signals now constrain budget/horizon
+  - Calibration interface added (`AdjustmentPlannerConfig`) for offline tuning of planner/objective coefficients
+  - Objective term-level logging added for interpretability and debugging
+  - Extreme integration scenario coverage added (sparse/dense/high-noise behavior bounds)
   - Analyzer configuration object for domain tuning (`FlowAnalyzerConfig`: thresholds, weights, lag)
   - Unit tests for dynamics and flow analysis
 - Missing:
@@ -230,3 +233,4 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added adaptive planner horizon and upgraded phase-change metrics for long-history-like signals.
 - 2026-02-15: Added joint plan search over scale and edit-budget for cumulative objective minimization.
 - 2026-02-15: Added phase-rigor-constrained planning and improved rollout forecast dynamics.
+- 2026-02-15: Added calibration hooks, objective-term observability, and extreme scenario integration tests.

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from .compose import compose_answer
 from .flow import (
+    AdjustmentPlannerConfig,
     ClusterFlowController,
     DynamicGraphAdjuster,
     FlowAnalyzerConfig,
@@ -36,6 +37,11 @@ class _CoreCycleSummary:
     mean_graph_density: float
     mean_impact_noise: float
     mean_coupling_penalty: float
+    mean_adjustment_term_churn: float
+    mean_adjustment_term_volatility: float
+    mean_adjustment_term_rewiring: float
+    mean_adjustment_term_risk: float
+    mean_adjustment_term_coupling: float
     mean_applied_new_edges: float
     mean_applied_drop_edges: float
     mean_suggested_new_edges: float
@@ -71,7 +77,11 @@ class _CoreCycleSummary:
 class FlowGraphRAG:
     """PoC orchestration for describe/predict/intervene queries."""
 
-    def __init__(self, analyzer_config: FlowAnalyzerConfig | None = None) -> None:
+    def __init__(
+        self,
+        analyzer_config: FlowAnalyzerConfig | None = None,
+        adjustment_planner_config: AdjustmentPlannerConfig | None = None,
+    ) -> None:
         self.router = QueryRouter()
         self.retriever = GraphRetriever()
         self.state_builder = StateVectorBuilder()
@@ -79,7 +89,7 @@ class FlowGraphRAG:
         self.dynamics = FlowFieldDynamics()
         self.analyzer = FlowDynamicsAnalyzer(config=analyzer_config)
         self.phase_analyzer = PhaseTransitionAnalyzer()
-        self.adjuster = DynamicGraphAdjuster()
+        self.adjuster = DynamicGraphAdjuster(planner_config=adjustment_planner_config)
         self.controller = TopologicalFlowController()
         self.cluster_controller = ClusterFlowController()
 
@@ -166,6 +176,11 @@ class FlowGraphRAG:
             "graph_density": float(cycle.mean_graph_density),
             "impact_noise": float(cycle.mean_impact_noise),
             "coupling_penalty": float(cycle.mean_coupling_penalty),
+            "adjustment_term_churn": float(cycle.mean_adjustment_term_churn),
+            "adjustment_term_volatility": float(cycle.mean_adjustment_term_volatility),
+            "adjustment_term_rewiring": float(cycle.mean_adjustment_term_rewiring),
+            "adjustment_term_risk": float(cycle.mean_adjustment_term_risk),
+            "adjustment_term_coupling": float(cycle.mean_adjustment_term_coupling),
             "applied_new_edges": float(cycle.mean_applied_new_edges),
             "applied_drop_edges": float(cycle.mean_applied_drop_edges),
             "suggested_new_edges": float(cycle.mean_suggested_new_edges),
@@ -264,6 +279,16 @@ class FlowGraphRAG:
             "intervention_impact_noise": float(intervention_cycle.mean_impact_noise),
             "baseline_coupling_penalty": float(baseline_cycle.mean_coupling_penalty),
             "intervention_coupling_penalty": float(intervention_cycle.mean_coupling_penalty),
+            "baseline_adjustment_term_churn": float(baseline_cycle.mean_adjustment_term_churn),
+            "intervention_adjustment_term_churn": float(intervention_cycle.mean_adjustment_term_churn),
+            "baseline_adjustment_term_volatility": float(baseline_cycle.mean_adjustment_term_volatility),
+            "intervention_adjustment_term_volatility": float(intervention_cycle.mean_adjustment_term_volatility),
+            "baseline_adjustment_term_rewiring": float(baseline_cycle.mean_adjustment_term_rewiring),
+            "intervention_adjustment_term_rewiring": float(intervention_cycle.mean_adjustment_term_rewiring),
+            "baseline_adjustment_term_risk": float(baseline_cycle.mean_adjustment_term_risk),
+            "intervention_adjustment_term_risk": float(intervention_cycle.mean_adjustment_term_risk),
+            "baseline_adjustment_term_coupling": float(baseline_cycle.mean_adjustment_term_coupling),
+            "intervention_adjustment_term_coupling": float(intervention_cycle.mean_adjustment_term_coupling),
             "baseline_applied_new_edges": float(baseline_cycle.mean_applied_new_edges),
             "intervention_applied_new_edges": float(intervention_cycle.mean_applied_new_edges),
             "baseline_applied_drop_edges": float(baseline_cycle.mean_applied_drop_edges),
@@ -386,6 +411,11 @@ class FlowGraphRAG:
         graph_densities: list[float] = []
         impact_noises: list[float] = []
         coupling_penalties: list[float] = []
+        term_churn: list[float] = []
+        term_volatility: list[float] = []
+        term_rewiring: list[float] = []
+        term_risk: list[float] = []
+        term_coupling: list[float] = []
         applied_new_counts: list[int] = []
         applied_drop_counts: list[int] = []
         new_edge_counts: list[int] = []
@@ -470,6 +500,11 @@ class FlowGraphRAG:
             graph_densities.append(adjustment.graph_density)
             impact_noises.append(adjustment.impact_noise)
             coupling_penalties.append(adjustment.coupling_penalty)
+            term_churn.append(float(adjustment.objective_terms.get("churn", 0.0)))
+            term_volatility.append(float(adjustment.objective_terms.get("volatility", 0.0)))
+            term_rewiring.append(float(adjustment.objective_terms.get("rewiring", 0.0)))
+            term_risk.append(float(adjustment.objective_terms.get("risk", 0.0)))
+            term_coupling.append(float(adjustment.objective_terms.get("coupling", 0.0)))
             applied_new_counts.append(adjustment.applied_new_edges)
             applied_drop_counts.append(adjustment.applied_drop_edges)
             new_edge_counts.append(len(adjustment.suggested_new_edges))
@@ -521,6 +556,11 @@ class FlowGraphRAG:
         mean_graph_density = sum(graph_densities) / len(graph_densities) if graph_densities else 0.0
         mean_impact_noise = sum(impact_noises) / len(impact_noises) if impact_noises else 0.0
         mean_coupling_penalty = sum(coupling_penalties) / len(coupling_penalties) if coupling_penalties else 0.0
+        mean_term_churn = sum(term_churn) / len(term_churn) if term_churn else 0.0
+        mean_term_volatility = sum(term_volatility) / len(term_volatility) if term_volatility else 0.0
+        mean_term_rewiring = sum(term_rewiring) / len(term_rewiring) if term_rewiring else 0.0
+        mean_term_risk = sum(term_risk) / len(term_risk) if term_risk else 0.0
+        mean_term_coupling = sum(term_coupling) / len(term_coupling) if term_coupling else 0.0
         mean_applied_new = sum(applied_new_counts) / len(applied_new_counts) if applied_new_counts else 0.0
         mean_applied_drop = sum(applied_drop_counts) / len(applied_drop_counts) if applied_drop_counts else 0.0
         mean_new = sum(new_edge_counts) / len(new_edge_counts) if new_edge_counts else 0.0
@@ -572,6 +612,11 @@ class FlowGraphRAG:
             mean_graph_density=mean_graph_density,
             mean_impact_noise=mean_impact_noise,
             mean_coupling_penalty=mean_coupling_penalty,
+            mean_adjustment_term_churn=mean_term_churn,
+            mean_adjustment_term_volatility=mean_term_volatility,
+            mean_adjustment_term_rewiring=mean_term_rewiring,
+            mean_adjustment_term_risk=mean_term_risk,
+            mean_adjustment_term_coupling=mean_term_coupling,
             mean_applied_new_edges=mean_applied_new,
             mean_applied_drop_edges=mean_applied_drop,
             mean_suggested_new_edges=mean_new,

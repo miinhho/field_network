@@ -14,6 +14,7 @@ from .pipeline import FlowGraphRAG
 from .flow import (
     ClusterFlowController,
     ClusterPlanResult,
+    AdjustmentPlannerConfig,
     DynamicGraphAdjuster,
     FlowAnalyzerConfig,
     FlowFieldDynamics,
@@ -40,6 +41,7 @@ __all__ = [
     "FlowFieldDynamics",
     "FlowDynamicsAnalyzer",
     "FlowAnalyzerConfig",
+    "AdjustmentPlannerConfig",
     "DynamicGraphAdjuster",
     "GraphAdjustmentResult",
     "PhaseTransitionAnalyzer",

@@ -9,7 +9,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ffrag import Actant, Interaction, LayeredGraph
-from ffrag.flow import DynamicGraphAdjuster
+from ffrag.flow import AdjustmentPlannerConfig, DynamicGraphAdjuster
 
 
 class AdjustmentTests(unittest.TestCase):
@@ -154,6 +154,25 @@ class AdjustmentTests(unittest.TestCase):
             },
         )
         self.assertLessEqual(slowed.selected_edit_budget, base.selected_edit_budget)
+
+    def test_planner_config_hook_changes_objective_terms(self) -> None:
+        default_adjuster = DynamicGraphAdjuster()
+        tuned_adjuster = DynamicGraphAdjuster(
+            planner_config=AdjustmentPlannerConfig(
+                churn_weight_base=0.2,
+                churn_weight_density_gain=0.1,
+                volatility_weight_base=0.6,
+                volatility_weight_noise_gain=0.2,
+            )
+        )
+        state = {"transition_speed": 0.6, "temporal_regularity": 0.3, "schedule_density": 3.0}
+        impacts = {"a": 1.0, "b": 0.8, "c": 0.2}
+        out_default = default_adjuster.adjust(self._graph(), impacts, state)
+        out_tuned = tuned_adjuster.adjust(self._graph(), impacts, state)
+        self.assertNotEqual(
+            out_default.objective_terms["volatility"],
+            out_tuned.objective_terms["volatility"],
+        )
 
 
 if __name__ == "__main__":

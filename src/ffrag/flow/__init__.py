@@ -2,7 +2,7 @@ from .state import StateVectorBuilder
 from .simulator import FlowSimulator
 from .dynamics import FlowFieldDynamics, DynamicsResult, DynamicsSnapshot
 from .analysis import FlowAnalyzerConfig, FlowDynamicsAnalyzer, ResilienceAnalysis, TransitionAnalysis
-from .adjustment import DynamicGraphAdjuster, GraphAdjustmentResult
+from .adjustment import AdjustmentPlannerConfig, DynamicGraphAdjuster, GraphAdjustmentResult
 from .control import TopologicalFlowController, TopologicalControlResult
 from .multiscale import ClusterFlowController, ClusterPlanResult
 from .topology import SimplicialTopologyModel, SimplicialTopologyResult
@@ -20,6 +20,7 @@ __all__ = [
     "ResilienceAnalysis",
     "DynamicGraphAdjuster",
     "GraphAdjustmentResult",
+    "AdjustmentPlannerConfig",
     "TopologicalFlowController",
     "TopologicalControlResult",
     "ClusterFlowController",

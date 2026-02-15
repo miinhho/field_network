@@ -1,6 +1,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
+
+FEATURE_KEYS = (
+    "social_entropy",
+    "temporal_regularity",
+    "spatial_range",
+    "schedule_density",
+    "network_centrality",
+    "transition_speed",
+)
+
+
+@dataclass(slots=True)
+class FlowAnalyzerConfig:
+    basin_strategy: str = "centroid_std"
+    basin_quantile: float = 0.8
+    trigger_speed_jump_threshold: float = 0.15
+    trigger_regularity_drop_threshold: float = 0.15
+    trigger_density_jump_threshold: float = 0.5
+    trigger_speed_weight: float = 1.8
+    trigger_regularity_weight: float = 1.6
+    trigger_density_weight: float = 0.6
+    causal_lag_steps: int = 0
 
 
 @dataclass(slots=True)
@@ -10,6 +33,10 @@ class TransitionAnalysis:
     transition_matrix: dict[str, dict[str, float]]
     transition_triggers: list[str]
     attractor_basin_state: str | None
+    attractor_basin_radius: float
+    basin_occupancy: float
+    avg_trigger_confidence: float
+    causal_alignment_score: float
 
 
 @dataclass(slots=True)
@@ -25,6 +52,9 @@ class ResilienceAnalysis:
 class FlowDynamicsAnalyzer:
     """Analyzes trajectory snapshots into transition and resilience metrics."""
 
+    def __init__(self, config: FlowAnalyzerConfig | None = None) -> None:
+        self.config = config or FlowAnalyzerConfig()
+
     def classify_state(self, values: dict[str, float]) -> str:
         regularity = float(values.get("temporal_regularity", 0.0))
         speed = float(values.get("transition_speed", 0.0))
@@ -36,7 +66,11 @@ class FlowDynamicsAnalyzer:
             return "high_flux"
         return "adaptive"
 
-    def transition_analysis(self, trajectory: list[dict[str, float]]) -> TransitionAnalysis:
+    def transition_analysis(
+        self,
+        trajectory: list[dict[str, float]],
+        shock: dict[str, float] | None = None,
+    ) -> TransitionAnalysis:
         labels = [self.classify_state(point) for point in trajectory]
         counts: dict[str, dict[str, int]] = {}
 
@@ -54,12 +88,19 @@ class FlowDynamicsAnalyzer:
 
         triggers = self._detect_transition_triggers(trajectory, labels)
         basin = self._dominant_state(labels)
+        basin_radius, basin_occupancy = self._estimate_basin_boundary(trajectory, labels, basin)
+        avg_confidence = self._average_trigger_confidence(triggers)
+        causal_alignment = self._causal_alignment_score(trajectory, shock or {})
         return TransitionAnalysis(
             states=labels,
             transition_counts=counts,
             transition_matrix=matrix,
             transition_triggers=triggers,
             attractor_basin_state=basin,
+            attractor_basin_radius=round(basin_radius, 6),
+            basin_occupancy=round(basin_occupancy, 6),
+            avg_trigger_confidence=round(avg_confidence, 6),
+            causal_alignment_score=round(causal_alignment, 6),
         )
 
     def resilience_analysis(
@@ -162,14 +203,15 @@ class FlowDynamicsAnalyzer:
             reg_drop = prev.get("temporal_regularity", 0.0) - cur.get("temporal_regularity", 0.0)
             density_jump = cur.get("schedule_density", 0.0) - prev.get("schedule_density", 0.0)
             reasons: list[str] = []
-            if speed_jump > 0.15:
+            if speed_jump > self.config.trigger_speed_jump_threshold:
                 reasons.append("speed_jump")
-            if reg_drop > 0.15:
+            if reg_drop > self.config.trigger_regularity_drop_threshold:
                 reasons.append("regularity_drop")
-            if density_jump > 0.5:
+            if density_jump > self.config.trigger_density_jump_threshold:
                 reasons.append("density_jump")
             reason_text = ",".join(reasons) if reasons else "state_boundary_crossed"
-            triggers.append(f"t{i}->{i+1}:{reason_text}")
+            confidence = self._trigger_confidence(speed_jump, reg_drop, density_jump)
+            triggers.append(f"t{i}->{i+1}:{reason_text}|c={confidence:.3f}")
         return triggers
 
     def _dominant_state(self, labels: list[str]) -> str | None:
@@ -179,3 +221,117 @@ class FlowDynamicsAnalyzer:
         for label in labels:
             counts[label] = counts.get(label, 0) + 1
         return max(counts.items(), key=lambda item: item[1])[0]
+
+    def _trigger_confidence(self, speed_jump: float, reg_drop: float, density_jump: float) -> float:
+        # Weighted by theorized transition drivers: speed-up, regularity drop, density jump.
+        raw = (
+            max(0.0, speed_jump) * self.config.trigger_speed_weight
+            + max(0.0, reg_drop) * self.config.trigger_regularity_weight
+            + max(0.0, density_jump) * self.config.trigger_density_weight
+        )
+        return max(0.0, min(1.0, raw))
+
+    def _estimate_basin_boundary(
+        self,
+        trajectory: list[dict[str, float]],
+        labels: list[str],
+        dominant_state: str | None,
+    ) -> tuple[float, float]:
+        if not dominant_state or not trajectory or not labels:
+            return 0.0, 0.0
+
+        state_points = [trajectory[i] for i in range(len(labels)) if labels[i] == dominant_state]
+        if not state_points:
+            return 0.0, 0.0
+
+        centroid = self._centroid(state_points)
+        distances = [self._euclidean(self._vectorize(point), centroid) for point in state_points]
+        if not distances:
+            return 0.0, 0.0
+
+        radius = self._basin_radius(distances)
+        in_basin = 0
+        for point in trajectory:
+            if self._euclidean(self._vectorize(point), centroid) <= radius:
+                in_basin += 1
+        occupancy = in_basin / max(1, len(trajectory))
+        return radius, occupancy
+
+    def _basin_radius(self, distances: list[float]) -> float:
+        if not distances:
+            return 0.0
+        if self.config.basin_strategy == "quantile":
+            sorted_d = sorted(distances)
+            q = max(0.0, min(1.0, self.config.basin_quantile))
+            idx = int(round((len(sorted_d) - 1) * q))
+            return sorted_d[idx]
+        mean_dist = sum(distances) / len(distances)
+        variance = sum((d - mean_dist) ** 2 for d in distances) / len(distances)
+        return mean_dist + math.sqrt(max(0.0, variance))
+
+    def _average_trigger_confidence(self, triggers: list[str]) -> float:
+        if not triggers:
+            return 0.0
+        vals: list[float] = []
+        for item in triggers:
+            marker = "|c="
+            pos = item.rfind(marker)
+            if pos == -1:
+                continue
+            try:
+                vals.append(float(item[pos + len(marker) :]))
+            except ValueError:
+                continue
+        if not vals:
+            return 0.0
+        return sum(vals) / len(vals)
+
+    def _causal_alignment_score(self, trajectory: list[dict[str, float]], shock: dict[str, float]) -> float:
+        if len(trajectory) < 2 or not shock:
+            return 0.0
+
+        lag = max(0, self.config.causal_lag_steps)
+        delta_sum = {key: 0.0 for key in FEATURE_KEYS}
+        start = min(len(trajectory) - 1, lag)
+        for i in range(start, len(trajectory) - 1):
+            prev = trajectory[i]
+            cur = trajectory[i + 1]
+            for key in FEATURE_KEYS:
+                delta_sum[key] += float(cur.get(key, 0.0) - prev.get(key, 0.0))
+
+        total_weight = 0.0
+        aligned = 0.0
+        for key in FEATURE_KEYS:
+            s = float(shock.get(key, 0.0))
+            if abs(s) < 1e-9:
+                continue
+            d = delta_sum.get(key, 0.0)
+            weight = abs(s)
+            total_weight += weight
+            if s * d > 0:
+                aligned += weight
+
+        if total_weight <= 1e-9:
+            return 0.0
+        return aligned / total_weight
+
+    def _vectorize(self, point: dict[str, float]) -> list[float]:
+        return [float(point.get(key, 0.0)) for key in FEATURE_KEYS]
+
+    def _centroid(self, points: list[dict[str, float]]) -> list[float]:
+        vecs = [self._vectorize(point) for point in points]
+        dims = len(FEATURE_KEYS)
+        if not vecs:
+            return [0.0] * dims
+        out = [0.0] * dims
+        for vec in vecs:
+            for i in range(dims):
+                out[i] += vec[i]
+        return [value / len(vecs) for value in out]
+
+    def _euclidean(self, a: list[float], b: list[float]) -> float:
+        total = 0.0
+        for i in range(len(a)):
+            diff = a[i] - b[i]
+            total += diff * diff
+        return math.sqrt(total)

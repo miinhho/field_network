@@ -1,7 +1,9 @@
 from .state import StateVectorBuilder
 from .simulator import FlowSimulator
 from .dynamics import FlowFieldDynamics, DynamicsResult, DynamicsSnapshot
-from .analysis import FlowDynamicsAnalyzer, ResilienceAnalysis, TransitionAnalysis
+from .analysis import FlowAnalyzerConfig, FlowDynamicsAnalyzer, ResilienceAnalysis, TransitionAnalysis
+from .adjustment import DynamicGraphAdjuster, GraphAdjustmentResult
+from .control import TopologicalFlowController, TopologicalControlResult
 
 __all__ = [
     "StateVectorBuilder",
@@ -10,6 +12,11 @@ __all__ = [
     "DynamicsResult",
     "DynamicsSnapshot",
     "FlowDynamicsAnalyzer",
+    "FlowAnalyzerConfig",
     "TransitionAnalysis",
     "ResilienceAnalysis",
+    "DynamicGraphAdjuster",
+    "GraphAdjustmentResult",
+    "TopologicalFlowController",
+    "TopologicalControlResult",
 ]

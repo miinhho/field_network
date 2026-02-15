@@ -143,13 +143,26 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 
 - Done:
   - Dynamics core equation implementation (`FlowFieldDynamics`)
+  - Dynamic graph adjustment engine (`DynamicGraphAdjuster`) with edge weight adaptation and rewiring/drop suggestions
+  - Core co-evolution cycle: iterative state evolution <-> graph adjustment loop integrated into predict/intervene
+  - Node-level topological flow controller (`TopologicalFlowController`) integrated into co-evolution cycles
+  - Physics-inspired dynamics upgrade (adaptive dt + RK2 integration + kinetic-energy tracking)
+  - Topology-inspired controller upgrade (cycle-pressure term from triangle loop density)
+  - Vector-search-inspired rewiring upgrade (cosine similarity over node embeddings + bridge score ranking)
+  - Closed-loop stability monitoring (saturation ratio, oscillation index, convergence gate in core cycle)
   - Predict/intervene integration with dynamics snapshots
   - Transition/resilience analysis (`transition_matrix`, `recovery_rate`, `hysteresis_index`)
   - Basin/trigger and recovery-path metrics (`overshoot`, `settling_time`, `path_efficiency`)
+  - Basin boundary and trigger-strength metrics (`basin_radius`, `basin_occupancy`, `avg_trigger_confidence`)
+  - Basin strategy plugin support (`centroid_std`, `quantile`) and shock-to-transition causal alignment score
+  - Analyzer configuration object for domain tuning (`FlowAnalyzerConfig`: thresholds, weights, lag)
   - Unit tests for dynamics and flow analysis
 - Missing:
-  - Explicit attractor basin detection and transition trigger conditions
-  - More rigorous basin boundary estimation and trigger causality validation
+  - Causal validation against exogenous signals (current trigger confidence is rule-based)
+  - Basin boundary calibration against domain data (current boundary uses centroid + std radius)
+  - Domain-specific trigger thresholds (currently global constants)
+  - Dynamic graph adjustment policy learning/calibration from real outcomes
+  - Closed-loop control objective optimization with explicit loss minimization (currently heuristic gain adaptation)
   - Evaluation protocol redesign for dynamics validity (non-leaky ground truth)
   - Real GraphRAG generation path (current baseline remains retrieval-heavy)
 
@@ -169,3 +182,11 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added benchmark gating policy and dynamics-readiness checklist.
 - 2026-02-15: Added transition/resilience analysis layer and integrated dynamics metrics into predict/intervene outputs.
 - 2026-02-15: Added basin/trigger and recovery-path metrics with edge-case review checklist.
+- 2026-02-15: Added basin radius/occupancy and trigger confidence scoring to predict/intervene outputs.
+- 2026-02-15: Added basin strategy plugin and causal alignment scoring from shock to trajectory changes.
+- 2026-02-15: Added `FlowAnalyzerConfig` for configurable trigger thresholds/weights and causal lag.
+- 2026-02-15: Added `DynamicGraphAdjuster` and integrated structural adjustment metrics into predict/intervene.
+- 2026-02-15: Switched predict/intervene to iterative core co-evolution cycle (state evolution + graph adjustment per cycle).
+- 2026-02-15: Added node-level topological flow controller and control-energy/residual metrics.
+- 2026-02-15: Upgraded core algorithms with adaptive RK2 dynamics, cycle-pressure control, and vector-similarity rewiring.
+- 2026-02-15: Added convergence gate and oscillation/saturation stability metrics to co-evolution loop.

@@ -1,24 +1,56 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from .compose import compose_answer
-from .flow import FlowDynamicsAnalyzer, FlowFieldDynamics, FlowSimulator, StateVectorBuilder
+from .flow import (
+    DynamicGraphAdjuster,
+    FlowAnalyzerConfig,
+    FlowDynamicsAnalyzer,
+    FlowFieldDynamics,
+    FlowSimulator,
+    StateVectorBuilder,
+    TopologicalFlowController,
+)
 from .models import Answer, LayeredGraph, Perturbation, Query
 from .retrieval import GraphRetriever
 from .router import QueryRouter
 
 
+@dataclass(slots=True)
+class _CoreCycleSummary:
+    final_graph: LayeredGraph
+    final_impact: dict[str, float]
+    trajectory: list[dict[str, float]]
+    distance_series: list[float]
+    total_strengthened: int
+    total_weakened: int
+    mean_weight_shift: float
+    mean_suggested_new_edges: float
+    mean_suggested_drop_edges: float
+    mean_control_energy: float
+    mean_residual_ratio: float
+    mean_divergence_reduction: float
+    mean_saturation_ratio: float
+    mean_cycle_pressure: float
+    oscillation_index: float
+    converged: bool
+    cycles_executed: int
+
+
 class FlowGraphRAG:
     """PoC orchestration for describe/predict/intervene queries."""
 
-    def __init__(self) -> None:
+    def __init__(self, analyzer_config: FlowAnalyzerConfig | None = None) -> None:
         self.router = QueryRouter()
         self.retriever = GraphRetriever()
         self.state_builder = StateVectorBuilder()
         self.simulator = FlowSimulator()
         self.dynamics = FlowFieldDynamics()
-        self.analyzer = FlowDynamicsAnalyzer()
+        self.analyzer = FlowDynamicsAnalyzer(config=analyzer_config)
+        self.adjuster = DynamicGraphAdjuster()
+        self.controller = TopologicalFlowController()
 
     def run(self, graph: LayeredGraph, query: Query, perturbation: Perturbation | None = None) -> Answer:
         query_type = self.router.classify(query)
@@ -49,33 +81,31 @@ class FlowGraphRAG:
 
     def _predict(self, graph: LayeredGraph, query: Query, perturbation: Perturbation | None) -> Answer:
         p = perturbation or self._default_perturbation(graph)
-        result = self.simulator.propagate(graph, p)
-        target = p.targets[0] if p.targets else next(iter(graph.actants), "")
-        initial_state = self.state_builder.build(graph, target).values if target else {}
-        history = self._history_states(graph, target, result.impact_by_actant)
-        dyn = self.dynamics.simulate(initial_state=initial_state, history=history, shock=self._shock_vector(p))
-        top_impacts = sorted(result.impact_by_actant.items(), key=lambda item: item[1], reverse=True)[:3]
-        final_distance = dyn.snapshots[-1].attractor_distance if dyn.snapshots else 0.0
-        trajectory = [snap.state for snap in dyn.snapshots]
-        distances = [snap.attractor_distance for snap in dyn.snapshots]
-        trans = self.analyzer.transition_analysis(trajectory)
-        resil = self.analyzer.resilience_analysis(distances)
+        cycle = self._run_core_cycle(graph, p, cycles=3, shock_kind="base")
+        top_impacts = sorted(cycle.final_impact.items(), key=lambda item: item[1], reverse=True)[:3]
+        final_distance = cycle.distance_series[-1] if cycle.distance_series else 0.0
+        shock_vec = self._shock_vector(p)
+        trans = self.analyzer.transition_analysis(cycle.trajectory, shock=shock_vec)
+        resil = self.analyzer.resilience_analysis(cycle.distance_series)
         dominant_transition = self._dominant_transition_prob(trans.transition_matrix)
 
         claims = [
-            f"Predicted propagation reached {len(result.impact_by_actant)} actants in {result.hops_executed} hops.",
+            f"Core cycle reached {len(cycle.final_impact)} actants after iterative co-evolution.",
             f"Top impacted actants: {', '.join(actant for actant, _ in top_impacts) if top_impacts else 'none'}.",
-            f"Dynamics simulation produced {len(dyn.snapshots)} state updates; final attractor distance={final_distance:.4f}.",
+            f"Co-evolution produced {len(cycle.trajectory)} state updates; final attractor distance={final_distance:.4f}.",
             f"State trajectory classes: {', '.join(trans.states) if trans.states else 'none'}.",
             f"Attractor basin state: {trans.attractor_basin_state or 'none'}; triggers={len(trans.transition_triggers)}.",
+            f"Trigger confidence avg={trans.avg_trigger_confidence:.3f}; basin occupancy={trans.basin_occupancy:.3f}.",
+            f"Graph adjusted cumulatively: +{cycle.total_strengthened}/-{cycle.total_weakened} edges, mean shift={cycle.mean_weight_shift:.4f}.",
+            f"Topological control energy={cycle.mean_control_energy:.4f}, residual ratio={cycle.mean_residual_ratio:.4f}.",
         ]
         metrics = {
-            "hops_executed": float(result.hops_executed),
-            "affected_actants": float(len(result.impact_by_actant)),
-            "stabilized": 1.0 if result.stabilized else 0.0,
-            "dynamics_steps": float(len(dyn.snapshots)),
+            "hops_executed": 0.0,
+            "affected_actants": float(len(cycle.final_impact)),
+            "stabilized": 1.0 if len(cycle.distance_series) >= 2 and abs(cycle.distance_series[-1] - cycle.distance_series[-2]) < 0.02 else 0.0,
+            "dynamics_steps": float(len(cycle.trajectory)),
             "final_attractor_distance": float(final_distance),
-            "dynamics_stabilized": 1.0 if dyn.stabilized else 0.0,
+            "dynamics_stabilized": 1.0 if len(cycle.distance_series) >= 2 and abs(cycle.distance_series[-1] - cycle.distance_series[-2]) < 0.02 else 0.0,
             "state_class_count": float(len(set(trans.states))),
             "dominant_transition_prob": float(dominant_transition),
             "recovery_rate": float(resil.recovery_rate),
@@ -83,34 +113,45 @@ class FlowGraphRAG:
             "settling_time": float(resil.settling_time),
             "path_efficiency": float(resil.path_efficiency),
             "transition_trigger_count": float(len(trans.transition_triggers)),
+            "avg_trigger_confidence": float(trans.avg_trigger_confidence),
+            "attractor_basin_radius": float(trans.attractor_basin_radius),
+            "basin_occupancy": float(trans.basin_occupancy),
+            "causal_alignment_score": float(trans.causal_alignment_score),
+            "strengthened_edges": float(cycle.total_strengthened),
+            "weakened_edges": float(cycle.total_weakened),
+            "mean_weight_shift": float(cycle.mean_weight_shift),
+            "suggested_new_edges": float(cycle.mean_suggested_new_edges),
+            "suggested_drop_edges": float(cycle.mean_suggested_drop_edges),
+            "control_energy": float(cycle.mean_control_energy),
+            "residual_ratio": float(cycle.mean_residual_ratio),
+            "divergence_reduction": float(cycle.mean_divergence_reduction),
+            "saturation_ratio": float(cycle.mean_saturation_ratio),
+            "cycle_pressure": float(cycle.mean_cycle_pressure),
+            "oscillation_index": float(cycle.oscillation_index),
+            "converged": 1.0 if cycle.converged else 0.0,
+            "cycles_executed": float(cycle.cycles_executed),
         }
         evidence_ids = [f"perturbation:{p.perturbation_id}"]
         return compose_answer("predict", claims, evidence_ids, metrics, uncertainty=0.35)
 
     def _intervene(self, graph: LayeredGraph, query: Query, perturbation: Perturbation | None) -> Answer:
         p = perturbation or self._default_perturbation(graph)
-        result = self.simulator.propagate(graph, p)
-        target = p.targets[0] if p.targets else next(iter(graph.actants), "")
-        initial_state = self.state_builder.build(graph, target).values if target else {}
-        history = self._history_states(graph, target, result.impact_by_actant)
-        baseline = self.dynamics.simulate(initial_state=initial_state, history=history, shock=self._shock_vector(p))
-        intervention = self.dynamics.simulate(
-            initial_state=initial_state,
-            history=history,
-            shock=self._counter_shock_vector(p),
-        )
-        rewires = result.rewired_edges[:3]
+        baseline_cycle = self._run_core_cycle(graph, p, cycles=3, shock_kind="base")
+        intervention_cycle = self._run_core_cycle(graph, p, cycles=3, shock_kind="counter")
+        rewires = self.simulator.propagate(graph, p).rewired_edges[:3]
         rewire_text = ", ".join(f"{src}->{dst}" for src, dst in rewires) if rewires else "no rewiring suggested"
-        base_dist = baseline.snapshots[-1].attractor_distance if baseline.snapshots else 0.0
-        intervention_dist = intervention.snapshots[-1].attractor_distance if intervention.snapshots else 0.0
+        base_dist = baseline_cycle.distance_series[-1] if baseline_cycle.distance_series else 0.0
+        intervention_dist = intervention_cycle.distance_series[-1] if intervention_cycle.distance_series else 0.0
         improvement = base_dist - intervention_dist
-        base_traj = [snap.state for snap in baseline.snapshots]
-        int_traj = [snap.state for snap in intervention.snapshots]
-        base_distances = [snap.attractor_distance for snap in baseline.snapshots]
-        int_distances = [snap.attractor_distance for snap in intervention.snapshots]
-        base_trans = self.analyzer.transition_analysis(base_traj)
-        int_trans = self.analyzer.transition_analysis(int_traj)
-        int_resil = self.analyzer.resilience_analysis(int_distances, baseline_distances=base_distances)
+        shock_vec = self._shock_vector(p)
+        counter_shock_vec = self._counter_shock_vector(p)
+        base_trans = self.analyzer.transition_analysis(baseline_cycle.trajectory, shock=shock_vec)
+        int_trans = self.analyzer.transition_analysis(intervention_cycle.trajectory, shock=counter_shock_vec)
+        int_resil = self.analyzer.resilience_analysis(
+            intervention_cycle.distance_series,
+            baseline_distances=baseline_cycle.distance_series,
+        )
+        structural_gain = baseline_cycle.mean_weight_shift - intervention_cycle.mean_weight_shift
 
         claims = [
             f"Suggested rewiring candidates: {rewire_text}.",
@@ -118,10 +159,13 @@ class FlowGraphRAG:
             f"Counter-shock simulation changed attractor distance by {improvement:.4f} (positive is better).",
             f"Intervention hysteresis index={int_resil.hysteresis_index:.4f}.",
             f"Intervention basin state: {int_trans.attractor_basin_state or 'none'}; triggers={len(int_trans.transition_triggers)}.",
+            f"Intervention trigger confidence avg={int_trans.avg_trigger_confidence:.3f}; basin occupancy={int_trans.basin_occupancy:.3f}.",
+            f"Structural adjustment gain={structural_gain:.4f} (lower post-intervention edge shift is better).",
+            f"Control energy baseline/intervention={baseline_cycle.mean_control_energy:.4f}/{intervention_cycle.mean_control_energy:.4f}.",
         ]
         metrics = {
             "rewire_candidates": float(len(rewires)),
-            "affected_actants": float(len(result.impact_by_actant)),
+            "affected_actants": float(len(baseline_cycle.final_impact)),
             "baseline_attractor_distance": float(base_dist),
             "intervention_attractor_distance": float(intervention_dist),
             "intervention_improvement": float(improvement),
@@ -133,6 +177,23 @@ class FlowGraphRAG:
             "intervention_settling_time": float(int_resil.settling_time),
             "intervention_path_efficiency": float(int_resil.path_efficiency),
             "intervention_trigger_count": float(len(int_trans.transition_triggers)),
+            "intervention_avg_trigger_confidence": float(int_trans.avg_trigger_confidence),
+            "intervention_basin_radius": float(int_trans.attractor_basin_radius),
+            "intervention_basin_occupancy": float(int_trans.basin_occupancy),
+            "intervention_causal_alignment_score": float(int_trans.causal_alignment_score),
+            "intervention_structural_gain": float(structural_gain),
+            "baseline_mean_weight_shift": float(baseline_cycle.mean_weight_shift),
+            "intervention_mean_weight_shift": float(intervention_cycle.mean_weight_shift),
+            "baseline_strengthened_edges": float(baseline_cycle.total_strengthened),
+            "intervention_strengthened_edges": float(intervention_cycle.total_strengthened),
+            "baseline_control_energy": float(baseline_cycle.mean_control_energy),
+            "intervention_control_energy": float(intervention_cycle.mean_control_energy),
+            "baseline_residual_ratio": float(baseline_cycle.mean_residual_ratio),
+            "intervention_residual_ratio": float(intervention_cycle.mean_residual_ratio),
+            "baseline_oscillation_index": float(baseline_cycle.oscillation_index),
+            "intervention_oscillation_index": float(intervention_cycle.oscillation_index),
+            "baseline_converged": 1.0 if baseline_cycle.converged else 0.0,
+            "intervention_converged": 1.0 if intervention_cycle.converged else 0.0,
         }
         evidence_ids = [f"perturbation:{p.perturbation_id}"]
         return compose_answer("intervene", claims, evidence_ids, metrics, uncertainty=0.4)
@@ -188,3 +249,112 @@ class FlowGraphRAG:
                 if prob > best:
                     best = prob
         return round(best, 6)
+
+    def _run_core_cycle(
+        self,
+        graph: LayeredGraph,
+        perturbation: Perturbation,
+        cycles: int,
+        shock_kind: str,
+    ) -> _CoreCycleSummary:
+        current_graph = graph
+        trajectory: list[dict[str, float]] = []
+        distance_series: list[float] = []
+        total_strengthened = 0
+        total_weakened = 0
+        mean_shifts: list[float] = []
+        new_edge_counts: list[int] = []
+        drop_edge_counts: list[int] = []
+        control_energies: list[float] = []
+        residual_ratios: list[float] = []
+        divergence_reductions: list[float] = []
+        saturation_ratios: list[float] = []
+        cycle_pressures: list[float] = []
+        converged = False
+        stable_streak = 0
+        last_impact: dict[str, float] = {}
+
+        for _ in range(max(1, cycles)):
+            propagation = self.simulator.propagate(current_graph, perturbation)
+            last_impact = propagation.impact_by_actant
+            target = perturbation.targets[0] if perturbation.targets else next(iter(current_graph.actants), "")
+            initial_state = self.state_builder.build(current_graph, target).values if target else {}
+            history = self._history_states(current_graph, target, propagation.impact_by_actant)
+            shock_vec = self._shock_vector(perturbation) if shock_kind == "base" else self._counter_shock_vector(perturbation)
+            dyn = self.dynamics.simulate(initial_state=initial_state, history=history, shock=shock_vec)
+            final_state = dyn.snapshots[-1].state if dyn.snapshots else initial_state
+            final_distance = dyn.snapshots[-1].attractor_distance if dyn.snapshots else 0.0
+            trajectory.append(final_state)
+            distance_series.append(final_distance)
+
+            control = self.controller.compute(current_graph, propagation.impact_by_actant, final_state)
+            adjustment = self.adjuster.adjust(current_graph, control.controlled_impact, final_state)
+            total_strengthened += adjustment.strengthened_edges
+            total_weakened += adjustment.weakened_edges
+            mean_shifts.append(adjustment.mean_weight_shift)
+            new_edge_counts.append(len(adjustment.suggested_new_edges))
+            drop_edge_counts.append(len(adjustment.suggested_drop_edges))
+            control_energies.append(control.control_energy)
+            residual_ratios.append(control.residual_ratio)
+            divergence_reductions.append(max(0.0, control.divergence_norm_before - control.divergence_norm_after))
+            saturation_ratios.append(control.saturation_ratio)
+            cycle_pressures.append(control.cycle_pressure_mean)
+            current_graph = adjustment.adjusted_graph
+
+            if len(distance_series) >= 2:
+                dist_delta = abs(distance_series[-1] - distance_series[-2])
+                stable_dist = dist_delta < 0.015
+                stable_div = control.divergence_norm_after <= max(0.12, 0.8 * control.divergence_norm_before)
+                stable_shift = abs(adjustment.mean_weight_shift) < 0.02
+                if stable_dist and stable_div and stable_shift:
+                    stable_streak += 1
+                else:
+                    stable_streak = 0
+                if stable_streak >= 2:
+                    converged = True
+                    break
+
+        mean_shift = sum(mean_shifts) / len(mean_shifts) if mean_shifts else 0.0
+        mean_new = sum(new_edge_counts) / len(new_edge_counts) if new_edge_counts else 0.0
+        mean_drop = sum(drop_edge_counts) / len(drop_edge_counts) if drop_edge_counts else 0.0
+        mean_energy = sum(control_energies) / len(control_energies) if control_energies else 0.0
+        mean_residual = sum(residual_ratios) / len(residual_ratios) if residual_ratios else 0.0
+        mean_sat = sum(saturation_ratios) / len(saturation_ratios) if saturation_ratios else 0.0
+        mean_cycle_pressure = sum(cycle_pressures) / len(cycle_pressures) if cycle_pressures else 0.0
+        mean_div_reduction = (
+            sum(divergence_reductions) / len(divergence_reductions) if divergence_reductions else 0.0
+        )
+        oscillation_index = self._oscillation_index(distance_series)
+        return _CoreCycleSummary(
+            final_graph=current_graph,
+            final_impact=last_impact,
+            trajectory=trajectory,
+            distance_series=distance_series,
+            total_strengthened=total_strengthened,
+            total_weakened=total_weakened,
+            mean_weight_shift=mean_shift,
+            mean_suggested_new_edges=mean_new,
+            mean_suggested_drop_edges=mean_drop,
+            mean_control_energy=mean_energy,
+            mean_residual_ratio=mean_residual,
+            mean_divergence_reduction=mean_div_reduction,
+            mean_saturation_ratio=mean_sat,
+            mean_cycle_pressure=mean_cycle_pressure,
+            oscillation_index=oscillation_index,
+            converged=converged,
+            cycles_executed=len(distance_series),
+        )
+
+    def _oscillation_index(self, values: list[float]) -> float:
+        if len(values) < 3:
+            return 0.0
+        sign_changes = 0
+        prev_sign = 0
+        for i in range(1, len(values)):
+            d = values[i] - values[i - 1]
+            sign = 1 if d > 0 else (-1 if d < 0 else 0)
+            if sign != 0 and prev_sign != 0 and sign != prev_sign:
+                sign_changes += 1
+            if sign != 0:
+                prev_sign = sign
+        return sign_changes / max(1, len(values) - 2)

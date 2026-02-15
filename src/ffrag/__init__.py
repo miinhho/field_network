@@ -11,7 +11,15 @@ from .models import (
     Answer,
 )
 from .pipeline import FlowGraphRAG
-from .flow import FlowFieldDynamics, FlowDynamicsAnalyzer
+from .flow import (
+    DynamicGraphAdjuster,
+    FlowAnalyzerConfig,
+    FlowFieldDynamics,
+    FlowDynamicsAnalyzer,
+    GraphAdjustmentResult,
+    TopologicalControlResult,
+    TopologicalFlowController,
+)
 
 __all__ = [
     "Actant",
@@ -25,4 +33,9 @@ __all__ = [
     "FlowGraphRAG",
     "FlowFieldDynamics",
     "FlowDynamicsAnalyzer",
+    "FlowAnalyzerConfig",
+    "DynamicGraphAdjuster",
+    "GraphAdjustmentResult",
+    "TopologicalFlowController",
+    "TopologicalControlResult",
 ]

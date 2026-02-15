@@ -20,6 +20,8 @@ class DynamicsSnapshot:
     state: dict[str, float]
     velocity: dict[str, float]
     attractor_distance: float
+    kinetic_energy: float
+    adaptive_dt: float
 
 
 @dataclass(slots=True)
@@ -44,10 +46,12 @@ class FlowFieldDynamics:
         attractor_strength: float = 0.45,
         repeller_strength: float = 0.25,
         turbulence_strength: float = 0.15,
+        max_step_norm: float = 0.8,
     ) -> None:
         self.attractor_strength = attractor_strength
         self.repeller_strength = repeller_strength
         self.turbulence_strength = turbulence_strength
+        self.max_step_norm = max_step_norm
 
     def simulate(
         self,
@@ -70,7 +74,7 @@ class FlowFieldDynamics:
         stabilized = False
 
         for _ in range(max(1, steps)):
-            velocity = self._velocity(
+            velocity_1 = self._velocity(
                 x=x,
                 attractor=attractor,
                 repeller=repeller,
@@ -78,15 +82,29 @@ class FlowFieldDynamics:
                 turbulence=turbulence,
                 viscosity=viscosity,
             )
-            x = x + dt * velocity
+            adaptive_dt = self._adaptive_dt(dt, velocity_1)
+            midpoint = x + 0.5 * adaptive_dt * velocity_1
+            velocity_2 = self._velocity(
+                x=midpoint,
+                attractor=attractor,
+                repeller=repeller,
+                shock=self._to_vector(shock),
+                turbulence=turbulence,
+                viscosity=viscosity,
+            )
+            velocity = 0.5 * (velocity_1 + velocity_2)
+            x = x + adaptive_dt * velocity
             x = np.clip(x, 0.0, 10.0)
 
             dist = float(np.linalg.norm(x - attractor))
+            kinetic = float(np.dot(velocity, velocity))
             snapshots.append(
                 DynamicsSnapshot(
                     state=self._from_vector(x),
                     velocity=self._from_vector(velocity),
                     attractor_distance=round(dist, 6),
+                    kinetic_energy=round(kinetic, 6),
+                    adaptive_dt=round(adaptive_dt, 6),
                 )
             )
 
@@ -97,6 +115,14 @@ class FlowFieldDynamics:
             prev = x.copy()
 
         return DynamicsResult(snapshots=snapshots, stabilized=stabilized)
+
+    def _adaptive_dt(self, base_dt: float, velocity: np.ndarray) -> float:
+        norm = float(np.linalg.norm(velocity))
+        if norm <= 1e-9:
+            return base_dt
+        limit_ratio = self.max_step_norm / norm
+        scale = max(0.2, min(1.0, limit_ratio))
+        return base_dt * scale
 
     def _velocity(
         self,

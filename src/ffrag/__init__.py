@@ -12,6 +12,7 @@ from .models import (
 )
 from .pipeline import FlowGraphRAG
 from .calibration import CalibrationRow, run_calibration, candidate_configs
+from .dynamic_simulator import DynamicGraphSimulator, SimulationFrame, SimulationTrace, EdgeDelta
 from .flow import (
     ClusterFlowController,
     ClusterPlanResult,
@@ -42,6 +43,10 @@ __all__ = [
     "CalibrationRow",
     "run_calibration",
     "candidate_configs",
+    "DynamicGraphSimulator",
+    "SimulationFrame",
+    "SimulationTrace",
+    "EdgeDelta",
     "FlowFieldDynamics",
     "FlowDynamicsAnalyzer",
     "FlowAnalyzerConfig",

@@ -240,3 +240,4 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added structural drop-safety constraints and finalized phase-rigor constrained planner path.
 - 2026-02-15: Added core readiness checklist and automated readiness verification tests.
 - 2026-02-15: Added readiness-report CLI and offline calibration runner with automated tests.
+- 2026-02-15: Added standalone dynamic simulator and CLI for per-step node/edge/control/phase observability.

@@ -255,7 +255,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - Acceptance:
   - reproducible run and stable recommended parameter window
 
-5. Promote new metrics into reporting outputs (Next)
+5. Promote new metrics into reporting outputs (Completed 2026-02-15)
 - Deliverables:
   - extend calibration report columns with long-run guardrail summary metrics
   - add concise markdown/CSV reporting template for session handoff
@@ -348,3 +348,4 @@ Status (2026-02-15):
 - 2026-02-15: Added explicit stability exit gate and marked gate conditions as satisfied; proceeded to multi-domain adapter implementation.
 - 2026-02-15: Replaced ad-hoc adapter approach with SDK-style adapter package (base/registry/validation) and added generic rule-mapping adapter for user-defined domain schemas.
 - 2026-02-15: Removed concrete calendar adapter from core package and kept domain-specific adapter implementations in examples/external path to preserve SDK-only core boundaries.
+- 2026-02-15: Completed reporting promotion with long-run guardrail calibration columns and CSV/Markdown handoff templates (`ffrag.calibration_cli --rows-out/--summary-out/--report-md-out`).

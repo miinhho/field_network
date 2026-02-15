@@ -155,6 +155,7 @@ This is why we add supervisory/homeostatic constraints rather than pure Hebbian-
 10. Domain adapters on the SDK:
   - core package keeps generic rule-mapping adapter (`GenericMappingAdapter`, `MappingSpec`) for user-defined relations
   - concrete domain adapters are intended to live outside core (example moved under `examples/adapters/`)
+11. Reporting promotion completed for calibration: row-level long-run guardrail metrics (`avg_longrun_churn/retention/diversity`) and export templates for CSV + Markdown handoff artifacts
 
 ### Still Missing for Target Architecture
 
@@ -170,7 +171,7 @@ This is why we add supervisory/homeostatic constraints rather than pure Hebbian-
 - [x] Wire supervisory policy into adjuster parameter modulation
 - [x] Add long-run integration test for anti-collapse/anti-fragmentation guardrails
 - [x] Add calibration CLI scenario set for plasticity/hysteresis parameters
-- [ ] Promote new metrics into pipeline/reporting outputs
+- [x] Promote new metrics into pipeline/reporting outputs
 
 ## Change Log
 
@@ -211,3 +212,4 @@ This is why we add supervisory/homeostatic constraints rather than pure Hebbian-
 - 2026-02-15: Extended calibration runner/CLI with plasticity-hysteresis profile batches, supervisory-aware calibration metrics, and summary artifact output for recommended coefficient windows.
 - 2026-02-15: Reworked adapters into SDK-style package (`BaseAdapter`, registry, contract validator) to separate domain semantics from core engine.
 - 2026-02-15: Kept core adapter layer SDK-focused; moved concrete calendar adapter out of core into `examples/` and retained generic mapping adapter in core.
+- 2026-02-15: Added calibration reporting templates and long-run guardrail columns to calibration outputs (`rows.csv`, `summary.csv`, markdown report).

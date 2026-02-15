@@ -20,6 +20,9 @@ class CalibrationRow:
     avg_converged: float
     avg_supervisory_confusion: float
     avg_supervisory_forgetting: float
+    avg_longrun_churn: float
+    avg_longrun_retention: float
+    avg_longrun_diversity: float
 
 
 @dataclass(slots=True)
@@ -169,6 +172,9 @@ def run_calibration_with_summary(
         sum_conv = 0.0
         sum_confusion = 0.0
         sum_forgetting = 0.0
+        sum_longrun_churn = 0.0
+        sum_longrun_retention = 0.0
+        sum_longrun_diversity = 0.0
 
         for graph, perturbation in scenarios:
             out = rag.run(graph, Query(text="predict calibration scenario"), perturbation=perturbation)
@@ -180,6 +186,10 @@ def run_calibration_with_summary(
             sum_conv += float(m.get("converged", 0.0))
             sum_confusion += float(m.get("supervisory_confusion_score", 0.0))
             sum_forgetting += float(m.get("supervisory_forgetting_score", 0.0))
+            probe = _longrun_probe(rag=rag, graph=graph, perturbation=perturbation, steps=5)
+            sum_longrun_churn += probe["avg_longrun_churn"]
+            sum_longrun_retention += probe["avg_longrun_retention"]
+            sum_longrun_diversity += probe["avg_longrun_diversity"]
 
         n = float(len(scenarios))
         avg_obj = sum_obj / n
@@ -189,6 +199,9 @@ def run_calibration_with_summary(
         avg_conv = sum_conv / n
         avg_confusion = sum_confusion / n
         avg_forgetting = sum_forgetting / n
+        avg_longrun_churn = sum_longrun_churn / n
+        avg_longrun_retention = sum_longrun_retention / n
+        avg_longrun_diversity = sum_longrun_diversity / n
 
         # Lower is better; reward convergence modestly.
         score = (
@@ -198,6 +211,9 @@ def run_calibration_with_summary(
             + 0.05 * avg_edits
             + 0.15 * avg_confusion
             + 0.12 * avg_forgetting
+            + 0.10 * avg_longrun_churn
+            - 0.18 * avg_longrun_retention
+            - 0.15 * avg_longrun_diversity
             - 0.25 * avg_conv
         )
         rows.append(
@@ -211,6 +227,9 @@ def run_calibration_with_summary(
                 avg_converged=round(avg_conv, 6),
                 avg_supervisory_confusion=round(avg_confusion, 6),
                 avg_supervisory_forgetting=round(avg_forgetting, 6),
+                avg_longrun_churn=round(avg_longrun_churn, 6),
+                avg_longrun_retention=round(avg_longrun_retention, 6),
+                avg_longrun_diversity=round(avg_longrun_diversity, 6),
             )
         )
 
@@ -352,3 +371,32 @@ def _scenario(rng: random.Random, idx: int) -> tuple[LayeredGraph, Perturbation]
         kind="calibration",
     )
     return g, perturbation
+
+
+def _longrun_probe(
+    rag: FlowGraphRAG,
+    graph: LayeredGraph,
+    perturbation: Perturbation,
+    steps: int = 5,
+) -> dict[str, float]:
+    current = graph
+    churn_series: list[float] = []
+    retention_series: list[float] = []
+    diversity_series: list[float] = []
+    p = perturbation
+
+    for _ in range(max(1, steps)):
+        cycle = rag._run_core_cycle(current, p, cycles=3, shock_kind="base")
+        churn = float(cycle.mean_applied_new_edges + cycle.mean_applied_drop_edges)
+        retention = max(0.0, min(1.0, 1.0 - float(cycle.mean_supervisory_forgetting)))
+        diversity = max(0.0, min(1.0, float(cycle.mean_cross_scale_consistency)))
+        churn_series.append(churn)
+        retention_series.append(retention)
+        diversity_series.append(diversity)
+        current = cycle.final_graph
+
+    return {
+        "avg_longrun_churn": sum(churn_series) / max(1, len(churn_series)),
+        "avg_longrun_retention": sum(retention_series) / max(1, len(retention_series)),
+        "avg_longrun_diversity": sum(diversity_series) / max(1, len(diversity_series)),
+    }

@@ -42,6 +42,7 @@ class SimulationFrame:
     adjustment_scale: float
     planner_horizon: int
     edit_budget: int
+    node_positions: dict[str, tuple[float, float]]
     node_impacts: dict[str, float]
     node_controls: dict[str, float]
     node_final_values: dict[str, float]
@@ -85,6 +86,7 @@ class DynamicGraphSimulator:
         objective_scores: list[float] = []
         topological_tensions: list[float] = []
         prev_phase_context: dict[str, float] = {}
+        prev_layout: dict[str, tuple[float, float]] | None = None
 
         for step in range(1, max(1, steps) + 1):
             before_edges = self._edge_weights(current_graph)
@@ -149,6 +151,13 @@ class DynamicGraphSimulator:
             top_impacts = self._topk(prop.impact_by_actant, top_k)
             top_controls = self._topk(control.node_control, top_k, by_abs=True)
             top_final = self._topk(control.controlled_impact, top_k)
+            frame_layout = self._layout(current_graph, prev_layout)
+            frame_layout = self._advect_layout(
+                frame_layout,
+                control.node_control,
+                prop.impact_by_actant,
+            )
+            prev_layout = frame_layout
 
             frames.append(
                 SimulationFrame(
@@ -159,6 +168,7 @@ class DynamicGraphSimulator:
                     adjustment_scale=float(adjust.selected_adjustment_scale),
                     planner_horizon=int(adjust.selected_planner_horizon),
                     edit_budget=int(adjust.selected_edit_budget),
+                    node_positions=frame_layout,
                     node_impacts={k: float(round(v, 6)) for k, v in prop.impact_by_actant.items()},
                     node_controls={k: float(round(v, 6)) for k, v in control.node_control.items()},
                     node_final_values={k: float(round(v, 6)) for k, v in control.controlled_impact.items()},
@@ -170,7 +180,7 @@ class DynamicGraphSimulator:
                 )
             )
 
-        layout = self._layout(current_graph)
+        layout = prev_layout or self._layout(current_graph)
         return SimulationTrace(frames=frames, final_graph=current_graph, layout=layout)
 
     def demo_graph(self) -> LayeredGraph:
@@ -282,7 +292,11 @@ class DynamicGraphSimulator:
             for e in graph.interactions
         ]
 
-    def _layout(self, graph: LayeredGraph) -> dict[str, tuple[float, float]]:
+    def _layout(
+        self,
+        graph: LayeredGraph,
+        prev_layout: dict[str, tuple[float, float]] | None = None,
+    ) -> dict[str, tuple[float, float]]:
         g = nx.Graph()
         for nid in graph.actants.keys():
             g.add_node(nid)
@@ -290,8 +304,30 @@ class DynamicGraphSimulator:
             g.add_edge(e.source_id, e.target_id, weight=max(0.01, float(e.weight)))
         if g.number_of_nodes() == 0:
             return {}
-        pos = nx.spring_layout(g, seed=7, weight="weight")
+        pos_arg = None
+        if prev_layout:
+            pos_arg = {k: prev_layout[k] for k in g.nodes() if k in prev_layout}
+        pos = nx.spring_layout(g, seed=7, weight="weight", pos=pos_arg, iterations=25)
         out: dict[str, tuple[float, float]] = {}
         for nid, xy in pos.items():
             out[nid] = (float(xy[0]), float(xy[1]))
+        return out
+
+    def _advect_layout(
+        self,
+        layout: dict[str, tuple[float, float]],
+        node_control: dict[str, float],
+        node_impact: dict[str, float],
+    ) -> dict[str, tuple[float, float]]:
+        if not layout:
+            return {}
+        max_ctrl = max((abs(v) for v in node_control.values()), default=1.0) or 1.0
+        max_imp = max((abs(v) for v in node_impact.values()), default=1.0) or 1.0
+        out: dict[str, tuple[float, float]] = {}
+        for nid, (x, y) in layout.items():
+            c = float(node_control.get(nid, 0.0)) / max_ctrl
+            p = float(node_impact.get(nid, 0.0)) / max_imp
+            nx_ = max(-1.2, min(1.2, x + 0.18 * c))
+            ny_ = max(-1.2, min(1.2, y + 0.18 * p))
+            out[nid] = (nx_, ny_)
         return out

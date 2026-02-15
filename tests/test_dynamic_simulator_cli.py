@@ -32,6 +32,7 @@ class DynamicSimulatorCLITests(unittest.TestCase):
         ]
         out = subprocess.run(cmd, cwd=ROOT, check=True, capture_output=True, text=True)
         self.assertIn("\"frames\"", out.stdout)
+        self.assertIn("\"node_positions\"", out.stdout)
 
     def test_cli_html_output(self) -> None:
         out_path = ROOT / "tests" / "tmp_simulator_trace.html"

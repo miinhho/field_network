@@ -57,6 +57,7 @@ def _to_json(trace) -> dict:
                 "node_impacts": f.node_impacts,
                 "node_controls": f.node_controls,
                 "node_final_values": f.node_final_values,
+                "node_positions": {k: [v[0], v[1]] for k, v in f.node_positions.items()},
                 "edges": [
                     {
                         "source_id": e.source_id,
@@ -197,6 +198,7 @@ def _to_html(trace) -> str:
         <span>Step</span>
         <input id="step" type="range" min="0" max="0" value="0" />
         <strong id="stepLabel">1</strong>
+        <button id="playBtn" type="button">Play</button>
       </div>
     </div>
     <div class="panel">
@@ -218,11 +220,15 @@ def _to_html(trace) -> str:
     const DATA = __PAYLOAD__;
     const frames = DATA.frames || [];
     const layout = DATA.layout || {};
-    const nodeIds = Object.keys(layout);
+    const nodeIds = Array.from(new Set(
+      frames.flatMap(f => Object.keys(f.node_positions || {}))
+    ));
     const slider = document.getElementById("step");
     slider.max = Math.max(0, frames.length - 1);
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
+    const playBtn = document.getElementById("playBtn");
+    let timer = null;
 
     function mapPoint(x, y) {
       const px = 80 + (x + 1) * 0.5 * (canvas.width - 160);
@@ -240,11 +246,12 @@ def _to_html(trace) -> str:
       const finalVals = f.node_final_values || {};
       const controls = f.node_controls || {};
       const edges = f.edges || [];
+      const positions = f.node_positions || layout;
 
       // edges
       for (const e of edges) {
-        const a = layout[e.source_id];
-        const b = layout[e.target_id];
+        const a = positions[e.source_id];
+        const b = positions[e.target_id];
         if (!a || !b) continue;
         const [x1, y1] = mapPoint(a[0], a[1]);
         const [x2, y2] = mapPoint(b[0], b[1]);
@@ -258,7 +265,8 @@ def _to_html(trace) -> str:
 
       // nodes
       for (const n of nodeIds) {
-        const p = layout[n];
+        const p = positions[n];
+        if (!p) continue;
         const [x, y] = mapPoint(p[0], p[1]);
         const v = Number(finalVals[n] || 0);
         const c = Number(controls[n] || 0);
@@ -295,6 +303,27 @@ def _to_html(trace) -> str:
     }
 
     slider.addEventListener("input", () => drawFrame(Number(slider.value)));
+    playBtn.addEventListener("click", () => {
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+        playBtn.textContent = "Play";
+        return;
+      }
+      playBtn.textContent = "Pause";
+      timer = setInterval(() => {
+        const cur = Number(slider.value);
+        const next = cur + 1;
+        if (next >= frames.length) {
+          clearInterval(timer);
+          timer = null;
+          playBtn.textContent = "Play";
+          return;
+        }
+        slider.value = String(next);
+        drawFrame(next);
+      }, 700);
+    });
     drawFrame(0);
   </script>
 </body>

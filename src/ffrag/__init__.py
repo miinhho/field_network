@@ -11,6 +11,7 @@ from .models import (
     Answer,
 )
 from .pipeline import FlowGraphRAG
+from .flow import FlowFieldDynamics, FlowDynamicsAnalyzer
 
 __all__ = [
     "Actant",
@@ -22,4 +23,6 @@ __all__ = [
     "Query",
     "Answer",
     "FlowGraphRAG",
+    "FlowFieldDynamics",
+    "FlowDynamicsAnalyzer",
 ]

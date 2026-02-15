@@ -75,11 +75,22 @@ class PipelineTests(unittest.TestCase):
         answer = self.rag.run(self.graph, Query(text="predict next transition"), perturbation=perturbation)
         self.assertEqual(answer.query_type, "predict")
         self.assertGreaterEqual(answer.metrics_used["affected_actants"], 1)
+        self.assertIn("dynamics_steps", answer.metrics_used)
+        self.assertIn("final_attractor_distance", answer.metrics_used)
+        self.assertIn("dominant_transition_prob", answer.metrics_used)
+        self.assertIn("recovery_rate", answer.metrics_used)
+        self.assertIn("overshoot_index", answer.metrics_used)
+        self.assertIn("settling_time", answer.metrics_used)
+        self.assertIn("transition_trigger_count", answer.metrics_used)
 
     def test_intervene_route_returns_rewiring_metric(self) -> None:
         answer = self.rag.run(self.graph, Query(text="intervene to reduce risk"))
         self.assertEqual(answer.query_type, "intervene")
         self.assertIn("rewire_candidates", answer.metrics_used)
+        self.assertIn("intervention_improvement", answer.metrics_used)
+        self.assertIn("intervention_hysteresis_index", answer.metrics_used)
+        self.assertIn("intervention_overshoot_index", answer.metrics_used)
+        self.assertIn("intervention_settling_time", answer.metrics_used)
 
     def test_guardrail_blocks_subjective_inference(self) -> None:
         answer = self.rag.run(self.graph, Query(text="describe"))

@@ -16,3 +16,13 @@ These files are intended to be read and updated in future sessions as persistent
 - Keep both memory files synchronized when architecture or priorities change.
 - Prefer appending a short "Change Log" entry with date when making major updates.
 - Do not store secrets or credentials in memory files.
+
+## Ongoing Reporting Rules
+
+For every implementation step, always report:
+
+1. What is completed
+2. What is still missing
+3. What should be worked on next
+
+After each implementation step, always include an edge-case review that lists likely failure cases and current handling status.

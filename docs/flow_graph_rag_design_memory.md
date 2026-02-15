@@ -41,6 +41,7 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - State-space construction (`state_vector`)
 - Perturbation propagation (`impact diffusion`, `attenuation`)
 - Transition and resilience estimation (`transition_matrix`, `recovery metrics`)
+- Explicit dynamics step model (`x(t+1) = x(t) + F(x,t,u)`) for predict/intervene
 
 ### Layer 3: Answer Composer + Guardrails
 
@@ -89,8 +90,10 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 1. Initial persistence stack (in-memory only vs in-memory + graph DB)
 2. Default simulation complexity (linear rules vs richer nonlinear operators)
 3. Minimal required confidence calibration in response schema
+4. Evaluation protocol for dynamics validity before any comparative benchmark claims
 
 ## Change Log
 
 - 2026-02-15: Initial memory document created from design discussion.
 - 2026-02-15: Updated PoC tech direction to uv-managed virtualenv and standard libraries (`numpy`, `networkx`).
+- 2026-02-15: Added explicit flow dynamics equation requirement to the architecture memory.

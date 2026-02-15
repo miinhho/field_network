@@ -58,6 +58,8 @@ class AdjustmentTests(unittest.TestCase):
         self.assertLessEqual(out.graph_density, 1.0)
         self.assertGreaterEqual(out.impact_noise, 0.0)
         self.assertLessEqual(out.impact_noise, 1.0)
+        self.assertGreaterEqual(out.coupling_penalty, 0.0)
+        self.assertLessEqual(out.coupling_penalty, 1.0)
 
     def test_phase_aware_adjustment_becomes_conservative(self) -> None:
         adjuster = DynamicGraphAdjuster()
@@ -96,6 +98,23 @@ class AdjustmentTests(unittest.TestCase):
         )
         self.assertLessEqual(sparse.graph_density, dense.graph_density)
         self.assertGreaterEqual(len(sparse.suggested_new_edges), len(dense.suggested_new_edges))
+
+    def test_control_coupling_increases_objective_when_control_is_unstable(self) -> None:
+        adjuster = DynamicGraphAdjuster()
+        base = adjuster.adjust(
+            self._graph(),
+            impact_by_actant={"a": 1.0, "b": 0.8, "c": 0.2},
+            state={"transition_speed": 0.5, "temporal_regularity": 0.4, "schedule_density": 3.0},
+            control_context={"residual_ratio": 0.05, "divergence_norm_after": 0.08, "control_energy": 0.2},
+        )
+        unstable = adjuster.adjust(
+            self._graph(),
+            impact_by_actant={"a": 1.0, "b": 0.8, "c": 0.2},
+            state={"transition_speed": 0.5, "temporal_regularity": 0.4, "schedule_density": 3.0},
+            control_context={"residual_ratio": 0.9, "divergence_norm_after": 1.6, "control_energy": 2.8},
+        )
+        self.assertGreaterEqual(unstable.coupling_penalty, base.coupling_penalty)
+        self.assertGreaterEqual(unstable.adjustment_objective_score, base.adjustment_objective_score - 1e-6)
 
 
 if __name__ == "__main__":

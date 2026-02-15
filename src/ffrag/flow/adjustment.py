@@ -19,6 +19,7 @@ class GraphAdjustmentResult:
     selected_adjustment_scale: float
     graph_density: float
     impact_noise: float
+    coupling_penalty: float
     suggested_new_edges: list[tuple[str, str]]
     suggested_drop_edges: list[tuple[str, str]]
 
@@ -42,6 +43,7 @@ class DynamicGraphAdjuster:
         impact_by_actant: dict[str, float],
         state: dict[str, float],
         phase_context: dict[str, float] | None = None,
+        control_context: dict[str, float] | None = None,
     ) -> GraphAdjustmentResult:
         adjusted = LayeredGraph(
             graph_id=f"{graph.graph_id}:adjusted",
@@ -54,6 +56,7 @@ class DynamicGraphAdjuster:
         instability = self._estimate_instability(state)
         phase_risk = self._phase_risk(phase_context)
         density, impact_noise = self._graph_profile(graph, impact_by_actant)
+        coupling = self._control_coupling_penalty(control_context)
         lr_scale = 1.0 - 0.6 * phase_risk
         plan_scale = self._select_adjustment_scale(
             graph=graph,
@@ -63,6 +66,7 @@ class DynamicGraphAdjuster:
             phase_risk=phase_risk,
             density=density,
             impact_noise=impact_noise,
+            coupling_penalty=coupling,
             lr_scale=lr_scale,
         )
 
@@ -126,6 +130,7 @@ class DynamicGraphAdjuster:
             phase_risk=phase_risk,
             density=density,
             impact_noise=impact_noise,
+            coupling_penalty=coupling,
             new_edge_count=len(suggested_new),
             drop_edge_count=len(suggested_drop),
         )
@@ -140,6 +145,7 @@ class DynamicGraphAdjuster:
             selected_adjustment_scale=round(plan_scale, 6),
             graph_density=round(density, 6),
             impact_noise=round(impact_noise, 6),
+            coupling_penalty=round(coupling, 6),
             suggested_new_edges=suggested_new,
             suggested_drop_edges=suggested_drop,
         )
@@ -278,6 +284,7 @@ class DynamicGraphAdjuster:
         phase_risk: float,
         density: float,
         impact_noise: float,
+        coupling_penalty: float,
         new_edge_count: int,
         drop_edge_count: int,
     ) -> float:
@@ -288,9 +295,10 @@ class DynamicGraphAdjuster:
         volatility_w = 0.28 + 0.28 * max(0.0, min(1.0, impact_noise))
         rewiring_w = 0.03 + 0.08 * max(0.0, min(1.0, density))
         risk_w = 0.28 + 0.22 * max(0.0, min(1.0, phase_risk))
+        coupling_w = 0.2 + 0.2 * max(0.0, min(1.0, impact_noise))
         rewiring_cost = rewiring_w * (new_edge_count + drop_edge_count)
         risk_penalty = risk_w * phase_risk
-        return churn_w * churn + volatility_w * volatility + rewiring_cost + risk_penalty
+        return churn_w * churn + volatility_w * volatility + rewiring_cost + risk_penalty + coupling_w * coupling_penalty
 
     def _select_adjustment_scale(
         self,
@@ -301,6 +309,7 @@ class DynamicGraphAdjuster:
         phase_risk: float,
         density: float,
         impact_noise: float,
+        coupling_penalty: float,
         lr_scale: float,
     ) -> float:
         candidates = self._planner_candidates(density, impact_noise, phase_risk)
@@ -315,6 +324,7 @@ class DynamicGraphAdjuster:
                 phase_risk=phase_risk,
                 density=density,
                 impact_noise=impact_noise,
+                coupling_penalty=coupling_penalty,
                 lr_scale=lr_scale,
                 scale=scale,
             )
@@ -332,6 +342,7 @@ class DynamicGraphAdjuster:
         phase_risk: float,
         density: float,
         impact_noise: float,
+        coupling_penalty: float,
         lr_scale: float,
         scale: float,
     ) -> float:
@@ -364,6 +375,7 @@ class DynamicGraphAdjuster:
                 phase_risk=risk,
                 density=density,
                 impact_noise=impact_noise,
+                coupling_penalty=coupling_penalty,
                 new_edge_count=0,
                 drop_edge_count=0,
             )
@@ -427,6 +439,16 @@ class DynamicGraphAdjuster:
         if density > 0.65 or impact_noise > 0.7:
             return (0.45, 0.65, 0.85, 1.0)
         return (0.5, 0.8, 1.0, 1.2)
+
+    def _control_coupling_penalty(self, control_context: dict[str, float] | None) -> float:
+        if not control_context:
+            return 0.0
+        residual = max(0.0, float(control_context.get("residual_ratio", 0.0)))
+        div_after = max(0.0, float(control_context.get("divergence_norm_after", 0.0)))
+        energy = max(0.0, float(control_context.get("control_energy", 0.0)))
+        div_term = min(1.0, div_after / 2.0)
+        energy_term = min(1.0, energy / 3.0)
+        return max(0.0, min(1.0, 0.45 * residual + 0.3 * div_term + 0.25 * energy_term))
 
     def _clip(self, value: float) -> float:
         return max(self.min_weight, min(self.max_weight, value))

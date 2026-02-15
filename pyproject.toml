@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ffrag"
+version = "0.1.0"
+description = "PoC Flow Graph RAG library"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "field_network" }]
+dependencies = [
+    "numpy>=1.26",
+    "networkx>=3.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.uv]
+default-groups = ["dev"]

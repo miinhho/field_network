@@ -146,3 +146,4 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - 2026-02-15: Added explicit core completion checklist and readiness tests for 100%-implementation verification.
 - 2026-02-15: Added readiness-report CLI and offline calibration runner with script entrypoints.
 - 2026-02-15: Added step-by-step dynamic simulator (`ffrag-simulate`) to observe node/edge updates, control signals, and phase-adjustment interactions per cycle.
+- 2026-02-15: Added HTML replay mode to simulator for visual step-by-step graph evolution playback.

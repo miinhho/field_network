@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+import networkx as nx
+
 from .flow import (
     ClusterFlowController,
     DynamicGraphAdjuster,
@@ -25,6 +27,13 @@ class EdgeDelta:
 
 
 @dataclass(slots=True)
+class EdgeState:
+    source_id: str
+    target_id: str
+    weight: float
+
+
+@dataclass(slots=True)
 class SimulationFrame:
     step: int
     objective_score: float
@@ -33,6 +42,10 @@ class SimulationFrame:
     adjustment_scale: float
     planner_horizon: int
     edit_budget: int
+    node_impacts: dict[str, float]
+    node_controls: dict[str, float]
+    node_final_values: dict[str, float]
+    edges: list[EdgeState]
     top_impacts: list[tuple[str, float]]
     top_controls: list[tuple[str, float]]
     top_final_nodes: list[tuple[str, float]]
@@ -43,6 +56,7 @@ class SimulationFrame:
 class SimulationTrace:
     frames: list[SimulationFrame]
     final_graph: LayeredGraph
+    layout: dict[str, tuple[float, float]]
 
 
 class DynamicGraphSimulator:
@@ -145,6 +159,10 @@ class DynamicGraphSimulator:
                     adjustment_scale=float(adjust.selected_adjustment_scale),
                     planner_horizon=int(adjust.selected_planner_horizon),
                     edit_budget=int(adjust.selected_edit_budget),
+                    node_impacts={k: float(round(v, 6)) for k, v in prop.impact_by_actant.items()},
+                    node_controls={k: float(round(v, 6)) for k, v in control.node_control.items()},
+                    node_final_values={k: float(round(v, 6)) for k, v in control.controlled_impact.items()},
+                    edges=self._edge_states(current_graph),
                     top_impacts=top_impacts,
                     top_controls=top_controls,
                     top_final_nodes=top_final,
@@ -152,7 +170,8 @@ class DynamicGraphSimulator:
                 )
             )
 
-        return SimulationTrace(frames=frames, final_graph=current_graph)
+        layout = self._layout(current_graph)
+        return SimulationTrace(frames=frames, final_graph=current_graph, layout=layout)
 
     def demo_graph(self) -> LayeredGraph:
         g = LayeredGraph(graph_id="sim-demo", schema_version="0.1")
@@ -252,3 +271,27 @@ class DynamicGraphSimulator:
             )
         rows.sort(key=lambda r: abs(r.new_weight - r.old_weight), reverse=True)
         return rows[:top_k]
+
+    def _edge_states(self, graph: LayeredGraph) -> list[EdgeState]:
+        return [
+            EdgeState(
+                source_id=e.source_id,
+                target_id=e.target_id,
+                weight=float(round(e.weight, 6)),
+            )
+            for e in graph.interactions
+        ]
+
+    def _layout(self, graph: LayeredGraph) -> dict[str, tuple[float, float]]:
+        g = nx.Graph()
+        for nid in graph.actants.keys():
+            g.add_node(nid)
+        for e in graph.interactions:
+            g.add_edge(e.source_id, e.target_id, weight=max(0.01, float(e.weight)))
+        if g.number_of_nodes() == 0:
+            return {}
+        pos = nx.spring_layout(g, seed=7, weight="weight")
+        out: dict[str, tuple[float, float]] = {}
+        for nid, xy in pos.items():
+            out[nid] = (float(xy[0]), float(xy[1]))
+        return out

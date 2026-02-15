@@ -33,6 +33,28 @@ class DynamicSimulatorCLITests(unittest.TestCase):
         out = subprocess.run(cmd, cwd=ROOT, check=True, capture_output=True, text=True)
         self.assertIn("\"frames\"", out.stdout)
 
+    def test_cli_html_output(self) -> None:
+        out_path = ROOT / "tests" / "tmp_simulator_trace.html"
+        if out_path.exists():
+            out_path.unlink()
+        cmd = [
+            str(ROOT / ".venv" / "bin" / "python"),
+            "-m",
+            "ffrag.dynamic_simulator_cli",
+            "--steps",
+            "2",
+            "--format",
+            "html",
+            "--out",
+            str(out_path),
+        ]
+        out = subprocess.run(cmd, cwd=ROOT, check=True, capture_output=True, text=True)
+        self.assertIn("wrote_html", out.stdout)
+        self.assertTrue(out_path.exists())
+        text = out_path.read_text(encoding="utf-8")
+        self.assertIn("<html", text.lower())
+        out_path.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()

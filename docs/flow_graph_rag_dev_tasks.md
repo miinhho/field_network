@@ -198,6 +198,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Extreme integration scenario coverage added (sparse/dense/high-noise behavior bounds)
   - Structural safety constraints added for edit execution (bridge/degree protection on edge drops)
   - Completed planner signal path for phase-rigor metrics (`critical_slowing`, `hysteresis_proxy`)
+  - Baseline adaptive plasticity state loop in adjuster (`A_ij`, `E_ij`, `R_i`) with hysteresis-based emergent suggestion path
   - Core completion/readiness checklist and automated readiness tests added
   - Analyzer configuration object for domain tuning (`FlowAnalyzerConfig`: thresholds, weights, lag)
   - Unit tests for dynamics and flow analysis
@@ -211,9 +212,40 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Global optimization across multi-cycle graph rewiring (current phase-aware adjustment remains local-step policy)
   - Evaluation protocol redesign for dynamics validity (non-leaky ground truth)
   - Real GraphRAG generation path (current baseline remains retrieval-heavy)
-  - Adaptive plasticity state machine (`A/E/R`) for non-edge latent coupling
   - Supervisory control loop for confusion/forgetting stabilization
-  - Hysteresis-based emergent-link lifecycle calibration (`theta_on/off`, dwell conditions)
+  - Adaptive plasticity/hysteresis calibration (`theta_on/off`, dwell, eta, fatigue/recovery) against long-run behaviors
+
+## Next Session Checklist (Action Order)
+
+1. Implement supervisory metrics and state
+- Deliverables:
+  - confusion proxy: cluster margin + mixing entropy
+  - forgetting proxy: important-node retention/connectivity loss
+  - lightweight `SupervisoryControlState` object
+- Acceptance:
+  - deterministic unit tests for metric bounds and monotonic sanity checks
+
+2. Wire supervisory policy into adjuster
+- Deliverables:
+  - modulation hooks for `eta_up/down`, `theta_on/off`, and edit budget bias
+  - policy trace outputs for observability
+- Acceptance:
+  - high-confusion scenario reduces merge-prone rewiring
+  - high-forgetting scenario reduces aggressive pruning
+
+3. Long-run integration tests for phase outcomes
+- Deliverables:
+  - repeated-perturbation scenarios (collapse-prone, fragmentation-prone, noisy)
+  - guardrail pass/fail thresholds
+- Acceptance:
+  - bounded edge churn and diversity/retention floors maintained
+
+4. Calibration runner extension
+- Deliverables:
+  - scenario batch in calibration CLI for plasticity/hysteresis tuning
+  - compact summary artifact with recommended coefficient ranges
+- Acceptance:
+  - reproducible run and stable recommended parameter window
 
 ## Edge-Case Review Checklist
 

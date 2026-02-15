@@ -138,6 +138,30 @@ This is why we add supervisory/homeostatic constraints rather than pure Hebbian-
 5. Latent-affinity candidate policy at scale (Top-K neighborhood vs ANN candidates vs mixed)
 6. Supervisory controller policy form (rule-based first vs learned policy later)
 
+## Session Handoff (Current Snapshot)
+
+### Implemented Core
+
+1. Dynamic co-evolution loop (state/control/phase/adjustment)
+2. Physics-capable simulator with HTML and WebGL replay outputs
+3. Baseline adaptive plasticity in adjuster (`A_ij`, `E_ij`, `R_i`) with hysteresis suggestion path
+4. Structural safety constraints for drop edits (degree/connectivity preservation)
+
+### Still Missing for Target Architecture
+
+1. Supervisory adaptive controller (confusion + forgetting monitors)
+2. Adaptive plasticity parameter calibration (`eta_up/down`, `theta_on/off`, dwell)
+3. Candidate policy upgrade for large graphs (ANN or hybrid retrieval)
+4. Long-horizon collapse/fragmentation validation protocol
+
+### Next Session Checklist
+
+- [ ] Add supervisory metrics module (cluster margin, mixing entropy proxy, retention loss)
+- [ ] Wire supervisory policy into adjuster parameter modulation
+- [ ] Add long-run integration test for anti-collapse/anti-fragmentation guardrails
+- [ ] Add calibration CLI scenario set for plasticity/hysteresis parameters
+- [ ] Promote new metrics into pipeline/reporting outputs
+
 ## Change Log
 
 - 2026-02-15: Initial memory document created from design discussion.

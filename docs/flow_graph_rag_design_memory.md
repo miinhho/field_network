@@ -53,6 +53,7 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - Phase-aware closed loop integrated: prior cycle phase risk now modulates both node-control safety clamp and graph-adjustment aggressiveness
 - Regime persistence metric added for temporal stability tracking (`regime_persistence_score`)
 - Signal-consistency refinement: phase signal for next-cycle control/adjustment now comes from the same `PhaseTransitionAnalyzer` path used for reported metrics
+- Dynamic graph adjustment now has an explicit objective score (`adjustment_objective_score`) combining churn, volatility, rewiring cost, and phase-risk penalty
 
 ### Layer 3: Answer Composer + Guardrails
 
@@ -117,3 +118,4 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - 2026-02-15: Added time-axis phase-transition detection metrics to core cycle (`critical_transition_score`, `early_warning_score`, `regime_switch_count`).
 - 2026-02-15: Added phase-aware closed-loop control/adjustment and regime persistence metric.
 - 2026-02-15: Reviewed and corrected phase-loop consistency and risk-policy effectiveness (drop/new edge conservativeness + post-adaptation safety clamp).
+- 2026-02-15: Added explicit adjustment objective formulation and exposed it in predict/intervene metrics.

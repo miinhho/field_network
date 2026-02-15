@@ -29,6 +29,7 @@ class _CoreCycleSummary:
     total_strengthened: int
     total_weakened: int
     mean_weight_shift: float
+    mean_adjustment_objective: float
     mean_suggested_new_edges: float
     mean_suggested_drop_edges: float
     mean_control_energy: float
@@ -117,6 +118,7 @@ class FlowGraphRAG:
             f"Attractor basin state: {trans.attractor_basin_state or 'none'}; triggers={len(trans.transition_triggers)}.",
             f"Trigger confidence avg={trans.avg_trigger_confidence:.3f}; basin occupancy={trans.basin_occupancy:.3f}.",
             f"Graph adjusted cumulatively: +{cycle.total_strengthened}/-{cycle.total_weakened} edges, mean shift={cycle.mean_weight_shift:.4f}.",
+            f"Adjustment objective={cycle.mean_adjustment_objective:.4f} (lower is better).",
             f"Topological control energy={cycle.mean_control_energy:.4f}, residual ratio={cycle.mean_residual_ratio:.4f}.",
             f"Phase regime={cycle.dominant_regime}; critical score={cycle.critical_transition_score:.3f}.",
         ]
@@ -141,6 +143,7 @@ class FlowGraphRAG:
             "strengthened_edges": float(cycle.total_strengthened),
             "weakened_edges": float(cycle.total_weakened),
             "mean_weight_shift": float(cycle.mean_weight_shift),
+            "adjustment_objective_score": float(cycle.mean_adjustment_objective),
             "suggested_new_edges": float(cycle.mean_suggested_new_edges),
             "suggested_drop_edges": float(cycle.mean_suggested_drop_edges),
             "control_energy": float(cycle.mean_control_energy),
@@ -221,6 +224,8 @@ class FlowGraphRAG:
             "intervention_structural_gain": float(structural_gain),
             "baseline_mean_weight_shift": float(baseline_cycle.mean_weight_shift),
             "intervention_mean_weight_shift": float(intervention_cycle.mean_weight_shift),
+            "baseline_adjustment_objective_score": float(baseline_cycle.mean_adjustment_objective),
+            "intervention_adjustment_objective_score": float(intervention_cycle.mean_adjustment_objective),
             "baseline_strengthened_edges": float(baseline_cycle.total_strengthened),
             "intervention_strengthened_edges": float(intervention_cycle.total_strengthened),
             "baseline_control_energy": float(baseline_cycle.mean_control_energy),
@@ -328,6 +333,7 @@ class FlowGraphRAG:
         total_strengthened = 0
         total_weakened = 0
         mean_shifts: list[float] = []
+        adjustment_objectives: list[float] = []
         new_edge_counts: list[int] = []
         drop_edge_counts: list[int] = []
         control_energies: list[float] = []
@@ -396,6 +402,7 @@ class FlowGraphRAG:
             total_strengthened += adjustment.strengthened_edges
             total_weakened += adjustment.weakened_edges
             mean_shifts.append(adjustment.mean_weight_shift)
+            adjustment_objectives.append(adjustment.adjustment_objective_score)
             new_edge_counts.append(len(adjustment.suggested_new_edges))
             drop_edge_counts.append(len(adjustment.suggested_drop_edges))
             control_energies.append(control.control_energy)
@@ -432,6 +439,9 @@ class FlowGraphRAG:
                     break
 
         mean_shift = sum(mean_shifts) / len(mean_shifts) if mean_shifts else 0.0
+        mean_adjustment_objective = (
+            sum(adjustment_objectives) / len(adjustment_objectives) if adjustment_objectives else 0.0
+        )
         mean_new = sum(new_edge_counts) / len(new_edge_counts) if new_edge_counts else 0.0
         mean_drop = sum(drop_edge_counts) / len(drop_edge_counts) if drop_edge_counts else 0.0
         mean_energy = sum(control_energies) / len(control_energies) if control_energies else 0.0
@@ -474,6 +484,7 @@ class FlowGraphRAG:
             total_strengthened=total_strengthened,
             total_weakened=total_weakened,
             mean_weight_shift=mean_shift,
+            mean_adjustment_objective=mean_adjustment_objective,
             mean_suggested_new_edges=mean_new,
             mean_suggested_drop_edges=mean_drop,
             mean_control_energy=mean_energy,

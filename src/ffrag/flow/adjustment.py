@@ -15,6 +15,7 @@ class GraphAdjustmentResult:
     weakened_edges: int
     unchanged_edges: int
     mean_weight_shift: float
+    adjustment_objective_score: float
     suggested_new_edges: list[tuple[str, str]]
     suggested_drop_edges: list[tuple[str, str]]
 
@@ -93,6 +94,15 @@ class DynamicGraphAdjuster:
         suggested_new = self._suggest_new_edges(graph, impact_by_actant, phase_risk=phase_risk)
         suggested_drop = self._suggest_drop_edges(adjusted, impact_by_actant, phase_risk=phase_risk)
         mean_shift = sum(shifts) / len(shifts) if shifts else 0.0
+        mean_abs_shift = (sum(abs(v) for v in shifts) / len(shifts)) if shifts else 0.0
+        objective = self._adjustment_objective(
+            mean_abs_shift=mean_abs_shift,
+            instability=instability,
+            viscosity=viscosity,
+            phase_risk=phase_risk,
+            new_edge_count=len(suggested_new),
+            drop_edge_count=len(suggested_drop),
+        )
 
         return GraphAdjustmentResult(
             adjusted_graph=adjusted,
@@ -100,6 +110,7 @@ class DynamicGraphAdjuster:
             weakened_edges=weakened,
             unchanged_edges=unchanged,
             mean_weight_shift=round(mean_shift, 6),
+            adjustment_objective_score=round(objective, 6),
             suggested_new_edges=suggested_new,
             suggested_drop_edges=suggested_drop,
         )
@@ -213,6 +224,22 @@ class DynamicGraphAdjuster:
         coherence = float(phase_context.get("coherence_break_score", 0.0))
         risk = 0.55 * critical + 0.3 * warning + 0.15 * coherence
         return max(0.0, min(1.0, risk))
+
+    def _adjustment_objective(
+        self,
+        mean_abs_shift: float,
+        instability: float,
+        viscosity: float,
+        phase_risk: float,
+        new_edge_count: int,
+        drop_edge_count: int,
+    ) -> float:
+        # Lower is better: small structural churn with stable dynamics under risk.
+        churn = mean_abs_shift
+        volatility = max(0.0, instability - viscosity)
+        rewiring_cost = 0.07 * (new_edge_count + drop_edge_count)
+        risk_penalty = 0.35 * phase_risk
+        return 0.5 * churn + 0.35 * volatility + rewiring_cost + risk_penalty
 
     def _clip(self, value: float) -> float:
         return max(self.min_weight, min(self.max_weight, value))

@@ -165,6 +165,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Phase-aware closed-loop policy: prior cycle phase risk feeds controller safety clamp and graph adjustment aggressiveness
   - Regime persistence metric integrated (`regime_persistence_score`)
   - Review-driven consistency fixes: phase signal path unified with analyzer output; drop/new edge conservativeness made phase-effective
+  - Dynamic graph adjustment objective added (`adjustment_objective_score`) and integrated into pipeline metrics
   - Analyzer configuration object for domain tuning (`FlowAnalyzerConfig`: thresholds, weights, lag)
   - Unit tests for dynamics and flow analysis
 - Missing:
@@ -212,3 +213,4 @@ It defines the implementation task breakdown, ordering, and deliverables for the
 - 2026-02-15: Added `PhaseTransitionAnalyzer` and exposed critical/early-warning/regime-switch metrics in predict/intervene outputs.
 - 2026-02-15: Added phase-aware closed-loop safety clamp + conservative adjustment policy and regime persistence metric.
 - 2026-02-15: Applied review fixes for phase-loop consistency and risk-policy efficacy (including post-adaptation safety clamp).
+- 2026-02-15: Added explicit objective for graph adjustment (churn/volatility/rewiring/risk) and surfaced baseline/intervention metrics.

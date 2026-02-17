@@ -12,6 +12,8 @@ class PhaseTransitionResult:
     coherence_break_score: float
     critical_slowing_score: float
     hysteresis_proxy_score: float
+    sign_flip_rate: float
+    polarity_coherence_score: float
     dominant_regime: str
 
 
@@ -37,7 +39,18 @@ class PhaseTransitionAnalyzer:
     ) -> PhaseTransitionResult:
         n = max(len(trajectory), len(attractor_distances), len(objective_scores), len(topological_tensions))
         if n == 0:
-            return PhaseTransitionResult(0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, "calm")
+            return PhaseTransitionResult(
+                critical_transition_score=0.0,
+                early_warning_score=0.0,
+                regime_switch_count=0,
+                regime_persistence_score=0.0,
+                coherence_break_score=0.0,
+                critical_slowing_score=0.0,
+                hysteresis_proxy_score=0.0,
+                sign_flip_rate=0.0,
+                polarity_coherence_score=1.0,
+                dominant_regime="calm",
+            )
 
         speed_series = [float(point.get("transition_speed", 0.0)) for point in trajectory]
         speed_series = self._align(speed_series, n)
@@ -64,12 +77,17 @@ class PhaseTransitionAnalyzer:
 
         critical_slowing = self._critical_slowing(order)
         hysteresis_proxy = self._hysteresis_proxy(order, objective_n)
+        sign_flip_rate = self._sign_flip_rate(order)
+        polarity_coherence = self._polarity_coherence(order, objective_n, tension_n)
+        polarity_incoherence = 1.0 - polarity_coherence
         critical = self._clip(
-            0.4 * max_deriv
-            + 0.22 * order_var
-            + 0.15 * mean_obj_deriv
-            + 0.13 * critical_slowing
-            + 0.10 * hysteresis_proxy
+            0.35 * max_deriv
+            + 0.19 * order_var
+            + 0.14 * mean_obj_deriv
+            + 0.12 * critical_slowing
+            + 0.08 * hysteresis_proxy
+            + 0.07 * sign_flip_rate
+            + 0.05 * polarity_incoherence
         )
         regime_labels = [self._regime(v) for v in order]
         switches = 0
@@ -90,6 +108,8 @@ class PhaseTransitionAnalyzer:
             warn += min(0.3, local_var * 2.0)
         if tension_n and tension_n[-1] > 0.65:
             warn += 0.2
+        warn += min(0.15, 0.25 * sign_flip_rate)
+        warn += min(0.1, 0.2 * polarity_incoherence)
         warning = self._clip(warn)
 
         if critical >= self.critical_threshold:
@@ -103,6 +123,8 @@ class PhaseTransitionAnalyzer:
             coherence_break_score=round(coherence_break, 6),
             critical_slowing_score=round(critical_slowing, 6),
             hysteresis_proxy_score=round(hysteresis_proxy, 6),
+            sign_flip_rate=round(sign_flip_rate, 6),
+            polarity_coherence_score=round(polarity_coherence, 6),
             dominant_regime=dominant_regime,
         )
 
@@ -222,3 +244,46 @@ class PhaseTransitionAnalyzer:
             return 0.0
         corr = num / den
         return max(0.0, min(1.0, (corr + 1.0) * 0.5))
+
+    def _sign_flip_rate(self, values: list[float]) -> float:
+        if len(values) < 3:
+            return 0.0
+        prev_sign = 0
+        flips = 0
+        opportunities = 0
+        for i in range(1, len(values)):
+            d = values[i] - values[i - 1]
+            sign = 1 if d > 1e-9 else (-1 if d < -1e-9 else 0)
+            if sign == 0:
+                continue
+            if prev_sign != 0:
+                opportunities += 1
+                if sign != prev_sign:
+                    flips += 1
+            prev_sign = sign
+        if opportunities <= 0:
+            return 0.0
+        return self._clip(flips / opportunities)
+
+    def _polarity_coherence(self, order: list[float], objective: list[float], tension: list[float]) -> float:
+        n = min(len(order), len(objective), len(tension))
+        if n < 2:
+            return 1.0
+        scores: list[float] = []
+        for i in range(1, n):
+            signs: list[int] = []
+            for series in (order, objective, tension):
+                d = series[i] - series[i - 1]
+                if d > 1e-9:
+                    signs.append(1)
+                elif d < -1e-9:
+                    signs.append(-1)
+            if not signs:
+                scores.append(1.0)
+                continue
+            pos = sum(1 for s in signs if s > 0)
+            neg = sum(1 for s in signs if s < 0)
+            scores.append(max(pos, neg) / len(signs))
+        if not scores:
+            return 1.0
+        return self._clip(sum(scores) / len(scores))

@@ -32,6 +32,10 @@ class CalibrationTests(unittest.TestCase):
             self.assertLessEqual(row.avg_longrun_retention, 1.0)
             self.assertGreaterEqual(row.avg_longrun_diversity, 0.0)
             self.assertLessEqual(row.avg_longrun_diversity, 1.0)
+            self.assertGreaterEqual(row.avg_cluster_ann_cache_hit_rate, 0.0)
+            self.assertLessEqual(row.avg_cluster_ann_cache_hit_rate, 1.0)
+            self.assertGreaterEqual(row.avg_cluster_active_contexts, 0.0)
+            self.assertGreaterEqual(row.avg_cluster_evicted_contexts, 0.0)
 
     def test_candidate_profiles_modes(self) -> None:
         self.assertGreaterEqual(len(candidate_profiles("default")), 1)

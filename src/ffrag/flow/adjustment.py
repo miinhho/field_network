@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from itertools import combinations
 from typing import Iterable
 
@@ -178,12 +178,12 @@ class DynamicGraphAdjuster:
         for edge in graph.interactions:
             src_impact = float(impact_by_actant.get(edge.source_id, 0.0))
             dst_impact = float(impact_by_actant.get(edge.target_id, 0.0))
-            pressure = 0.5 * (src_impact + dst_impact)
+            pressure = self._edge_pressure(src_impact, dst_impact)
 
             delta = self.learning_rate * lr_scale * plan_scale * (
                 (0.22 * pressure) + (0.10 * instability) - (0.08 * viscosity) - (0.10 * phase_risk)
             )
-            if pressure < 0.08:
+            if abs(pressure) < 0.08:
                 delta -= self.learning_rate * lr_scale * plan_scale * 0.04
 
             new_weight = self._clip(edge.weight + delta)
@@ -302,6 +302,9 @@ class DynamicGraphAdjuster:
                 "eta_down": round(float(supervisory_policy["eta_down"]), 6),
                 "theta_on": round(float(supervisory_policy["theta_on"]), 6),
                 "theta_off": round(float(supervisory_policy["theta_off"]), 6),
+                "phase_instability": round(float(supervisory_policy["phase_instability"]), 6),
+                "sign_flip_rate": round(float(supervisory_policy["sign_flip_rate"]), 6),
+                "polarity_coherence_score": round(float(supervisory_policy["polarity_coherence_score"]), 6),
                 "budget_multiplier": round(float(supervisory_policy["budget_multiplier"]), 6),
                 "new_edge_bias": round(float(supervisory_policy["new_edge_bias"]), 6),
                 "drop_edge_bias": round(float(supervisory_policy["drop_edge_bias"]), 6),
@@ -325,7 +328,7 @@ class DynamicGraphAdjuster:
             neighbors.setdefault(edge.source_id, set()).add(edge.target_id)
             neighbors.setdefault(edge.target_id, set()).add(edge.source_id)
 
-        ranked_nodes = [n for n, _ in sorted(impact_by_actant.items(), key=lambda item: item[1], reverse=True)]
+        ranked_nodes = [n for n, _ in sorted(impact_by_actant.items(), key=lambda item: abs(item[1]), reverse=True)]
         if not ranked_nodes:
             return []
 
@@ -345,7 +348,7 @@ class DynamicGraphAdjuster:
             bridge = self._bridge_score(a, b, neighbors)
             ia = float(impact_by_actant.get(a, 0.0))
             ib = float(impact_by_actant.get(b, 0.0))
-            stability = 1.0 - (abs(ia - ib) / max(1e-6, ia + ib + 1e-6))
+            stability = self._pair_stability(ia, ib)
             low_risk_score = 0.55 * sim + 0.45 * bridge
             high_risk_score = 0.7 * sim + 0.3 * stability
             score = (1.0 - phase_risk) * low_risk_score + phase_risk * high_risk_score
@@ -372,8 +375,19 @@ class DynamicGraphAdjuster:
             src_impact = float(impact_by_actant.get(edge.source_id, 0.0))
             dst_impact = float(impact_by_actant.get(edge.target_id, 0.0))
             impact_scale = 0.2 + 0.35 * max(0.0, min(1.0, phase_risk))
-            risk_gap = abs(src_impact - dst_impact)
-            score = edge.weight + impact_scale * (src_impact + dst_impact) - 0.2 * phase_risk * risk_gap
+            stability = self._pair_stability(src_impact, dst_impact)
+            sign_match = 1.0 if src_impact * dst_impact >= 0.0 else 0.0
+            magnitude = 0.5 * (abs(src_impact) + abs(dst_impact))
+            magnitude_n = magnitude / (1.0 + magnitude)
+            support = magnitude_n * (0.55 * stability + 0.45 * sign_match)
+            mismatch = (1.0 - sign_match) * (0.5 + 0.5 * (1.0 - stability))
+            risk_gap_n = abs(src_impact - dst_impact) / max(1e-6, abs(src_impact) + abs(dst_impact))
+            score = (
+                edge.weight
+                + impact_scale * support
+                - (0.12 + 0.22 * max(0.0, min(1.0, phase_risk))) * mismatch
+                - 0.08 * phase_risk * risk_gap_n
+            )
             scored.append((score, (edge.source_id, edge.target_id)))
 
         scored.sort(key=lambda item: item[0])
@@ -416,6 +430,18 @@ class DynamicGraphAdjuster:
         # Prefer connecting complementary neighborhoods (structural holes).
         return 1.0 - jaccard
 
+    def _pair_stability(self, ia: float, ib: float) -> float:
+        # Signed-safe similarity over impact magnitudes.
+        denom = max(1e-6, abs(ia) + abs(ib))
+        value = 1.0 - (abs(ia - ib) / denom)
+        return max(0.0, min(1.0, value))
+
+    def _edge_pressure(self, src_impact: float, dst_impact: float) -> float:
+        signed_mean = 0.5 * (src_impact + dst_impact)
+        sign_align = 1.0 if src_impact * dst_impact >= 0.0 else -1.0
+        aligned_mag = min(abs(src_impact), abs(dst_impact))
+        return 0.65 * signed_mean + 0.35 * sign_align * aligned_mag
+
     def _estimate_viscosity(self, state: dict[str, float]) -> float:
         reg = float(state.get("temporal_regularity", 0.0))
         density = float(state.get("schedule_density", 0.0))
@@ -430,36 +456,54 @@ class DynamicGraphAdjuster:
     def _phase_risk(self, phase_context: dict[str, float] | None) -> float:
         if not phase_context:
             return 0.0
-        critical = float(phase_context.get("critical_transition_score", 0.0))
-        warning = float(phase_context.get("early_warning_score", 0.0))
-        coherence = float(phase_context.get("coherence_break_score", 0.0))
-        risk = 0.55 * critical + 0.3 * warning + 0.15 * coherence
+        critical = max(0.0, min(1.0, float(phase_context.get("critical_transition_score", 0.0))))
+        warning = max(0.0, min(1.0, float(phase_context.get("early_warning_score", 0.0))))
+        coherence_break = max(0.0, min(1.0, float(phase_context.get("coherence_break_score", 0.0))))
+        sign_flip = max(0.0, min(1.0, float(phase_context.get("sign_flip_rate", 0.0))))
+        polarity_coherence = max(0.0, min(1.0, float(phase_context.get("polarity_coherence_score", 1.0))))
+        polarity_incoherence = 1.0 - polarity_coherence
+        risk = (
+            0.48 * critical
+            + 0.27 * warning
+            + 0.13 * coherence_break
+            + 0.08 * sign_flip
+            + 0.04 * polarity_incoherence
+        )
         return max(0.0, min(1.0, risk))
 
     def _supervisory_policy(self, supervisory_context: dict[str, float] | None) -> dict[str, float]:
         confusion = 0.0
         forgetting = 0.0
+        sign_flip = 0.0
+        polarity_coherence = 1.0
         if supervisory_context:
             confusion = max(0.0, min(1.0, float(supervisory_context.get("confusion_score", 0.0))))
             forgetting = max(0.0, min(1.0, float(supervisory_context.get("forgetting_score", 0.0))))
+            sign_flip = max(0.0, min(1.0, float(supervisory_context.get("sign_flip_rate", 0.0))))
+            polarity_coherence = max(0.0, min(1.0, float(supervisory_context.get("polarity_coherence_score", 1.0))))
 
-        eta_up = self._eta_up * (1.0 - 0.45 * confusion)
+        phase_instability = max(0.0, min(1.0, 0.7 * sign_flip + 0.3 * (1.0 - polarity_coherence)))
+
+        eta_up = self._eta_up * (1.0 - 0.45 * confusion) * (1.0 - 0.35 * phase_instability)
         eta_down = self._eta_down * (1.0 + 0.6 * forgetting)
-        theta_on = min(0.95, self._theta_on + 0.2 * confusion)
+        theta_on = min(0.95, self._theta_on + 0.2 * confusion + 0.12 * phase_instability)
         theta_off = min(theta_on - 0.05, self._theta_off + 0.12 * confusion)
         theta_off = max(0.05, theta_off)
-        budget_multiplier = (1.0 - 0.65 * confusion) * (1.0 + 0.35 * forgetting)
+        budget_multiplier = (1.0 - 0.65 * confusion) * (1.0 + 0.35 * forgetting) * (1.0 - 0.4 * phase_instability)
         budget_multiplier = max(0.25, min(1.25, budget_multiplier))
 
         # High confusion: reduce merge-prone link additions.
-        new_edge_bias = max(0.3, 1.0 - 0.6 * confusion)
+        new_edge_bias = max(0.3, 1.0 - 0.6 * confusion - 0.25 * phase_instability)
         # High forgetting: suppress aggressive pruning.
-        drop_edge_bias = max(0.2, 1.0 - 0.75 * forgetting)
+        drop_edge_bias = max(0.2, 1.0 - 0.75 * forgetting - 0.15 * phase_instability)
         drop_share = drop_edge_bias / (drop_edge_bias + new_edge_bias + 1e-9)
-        hysteresis_dwell = self._hysteresis_dwell + (1 if confusion > 0.65 else 0)
+        hysteresis_dwell = self._hysteresis_dwell + (1 if confusion > 0.65 or phase_instability > 0.6 else 0)
         return {
             "confusion_score": confusion,
             "forgetting_score": forgetting,
+            "sign_flip_rate": sign_flip,
+            "polarity_coherence_score": polarity_coherence,
+            "phase_instability": phase_instability,
             "eta_up": max(0.01, eta_up),
             "eta_down": max(0.01, eta_down),
             "theta_on": theta_on,
@@ -656,11 +700,11 @@ class DynamicGraphAdjuster:
         for edge in graph.interactions:
             src_impact = float(impact_by_actant.get(edge.source_id, 0.0))
             dst_impact = float(impact_by_actant.get(edge.target_id, 0.0))
-            pressure = 0.5 * (src_impact + dst_impact)
+            pressure = self._edge_pressure(src_impact, dst_impact)
             delta = self.learning_rate * lr_scale * scale * (
                 (0.22 * pressure) + (0.10 * instability) - (0.08 * viscosity) - (0.10 * phase_risk)
             )
-            if pressure < 0.08:
+            if abs(pressure) < 0.08:
                 delta -= self.learning_rate * lr_scale * scale * 0.04
             new_weight = self._clip(edge.weight + delta)
             shifts.append(new_weight - edge.weight)
@@ -838,7 +882,7 @@ class DynamicGraphAdjuster:
 
     def _base_timestamp(self, interactions: list[Interaction]) -> datetime:
         if not interactions:
-            return datetime.utcnow()
+            return datetime.now(timezone.utc)
         return max(edge.timestamp for edge in interactions)
 
     def _can_drop_edge(self, graph: LayeredGraph, edge_idx: int) -> bool:

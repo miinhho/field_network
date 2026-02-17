@@ -71,10 +71,15 @@ class _CoreCycleSummary:
     coherence_break_score: float
     critical_slowing_score: float
     hysteresis_proxy_score: float
+    sign_flip_rate: float
+    polarity_coherence_score: float
     dominant_regime: str
     mean_cluster_objective: float
     mean_cross_scale_consistency: float
     mean_micro_refinement_gain: float
+    mean_cluster_ann_cache_hit: float
+    mean_cluster_active_contexts: float
+    mean_cluster_evicted_contexts: float
     mean_supervisory_confusion: float
     mean_supervisory_forgetting: float
 
@@ -135,6 +140,7 @@ class FlowGraphRAG:
         trans = self.analyzer.transition_analysis(cycle.trajectory, shock=shock_vec)
         resil = self.analyzer.resilience_analysis(cycle.distance_series)
         dominant_transition = self._dominant_transition_prob(trans.transition_matrix)
+        stabilized = self._distance_stabilized(cycle.distance_series)
 
         claims = [
             f"Core cycle reached {len(cycle.final_impact)} actants after iterative co-evolution.",
@@ -157,10 +163,10 @@ class FlowGraphRAG:
         metrics = {
             "hops_executed": 0.0,
             "affected_actants": float(len(cycle.final_impact)),
-            "stabilized": 1.0 if len(cycle.distance_series) >= 2 and abs(cycle.distance_series[-1] - cycle.distance_series[-2]) < 0.02 else 0.0,
+            "stabilized": 1.0 if stabilized else 0.0,
             "dynamics_steps": float(len(cycle.trajectory)),
             "final_attractor_distance": float(final_distance),
-            "dynamics_stabilized": 1.0 if len(cycle.distance_series) >= 2 and abs(cycle.distance_series[-1] - cycle.distance_series[-2]) < 0.02 else 0.0,
+            "dynamics_stabilized": 1.0 if stabilized else 0.0,
             "state_class_count": float(len(set(trans.states))),
             "dominant_transition_prob": float(dominant_transition),
             "recovery_rate": float(resil.recovery_rate),
@@ -210,6 +216,9 @@ class FlowGraphRAG:
             "cluster_objective": float(cycle.mean_cluster_objective),
             "cross_scale_consistency": float(cycle.mean_cross_scale_consistency),
             "micro_refinement_gain": float(cycle.mean_micro_refinement_gain),
+            "cluster_ann_cache_hit_rate": float(cycle.mean_cluster_ann_cache_hit),
+            "cluster_active_contexts": float(cycle.mean_cluster_active_contexts),
+            "cluster_evicted_contexts": float(cycle.mean_cluster_evicted_contexts),
             "critical_transition_score": float(cycle.critical_transition_score),
             "early_warning_score": float(cycle.early_warning_score),
             "regime_switch_count": float(cycle.regime_switch_count),
@@ -217,6 +226,8 @@ class FlowGraphRAG:
             "coherence_break_score": float(cycle.coherence_break_score),
             "critical_slowing_score": float(cycle.critical_slowing_score),
             "hysteresis_proxy_score": float(cycle.hysteresis_proxy_score),
+            "sign_flip_rate": float(cycle.sign_flip_rate),
+            "polarity_coherence_score": float(cycle.polarity_coherence_score),
             "supervisory_confusion_score": float(cycle.mean_supervisory_confusion),
             "supervisory_forgetting_score": float(cycle.mean_supervisory_forgetting),
         }
@@ -332,6 +343,12 @@ class FlowGraphRAG:
             "intervention_cross_scale_consistency": float(intervention_cycle.mean_cross_scale_consistency),
             "baseline_micro_refinement_gain": float(baseline_cycle.mean_micro_refinement_gain),
             "intervention_micro_refinement_gain": float(intervention_cycle.mean_micro_refinement_gain),
+            "baseline_cluster_ann_cache_hit_rate": float(baseline_cycle.mean_cluster_ann_cache_hit),
+            "intervention_cluster_ann_cache_hit_rate": float(intervention_cycle.mean_cluster_ann_cache_hit),
+            "baseline_cluster_active_contexts": float(baseline_cycle.mean_cluster_active_contexts),
+            "intervention_cluster_active_contexts": float(intervention_cycle.mean_cluster_active_contexts),
+            "baseline_cluster_evicted_contexts": float(baseline_cycle.mean_cluster_evicted_contexts),
+            "intervention_cluster_evicted_contexts": float(intervention_cycle.mean_cluster_evicted_contexts),
             "baseline_critical_transition_score": float(baseline_cycle.critical_transition_score),
             "intervention_critical_transition_score": float(intervention_cycle.critical_transition_score),
             "baseline_early_warning_score": float(baseline_cycle.early_warning_score),
@@ -346,6 +363,10 @@ class FlowGraphRAG:
             "intervention_critical_slowing_score": float(intervention_cycle.critical_slowing_score),
             "baseline_hysteresis_proxy_score": float(baseline_cycle.hysteresis_proxy_score),
             "intervention_hysteresis_proxy_score": float(intervention_cycle.hysteresis_proxy_score),
+            "baseline_sign_flip_rate": float(baseline_cycle.sign_flip_rate),
+            "intervention_sign_flip_rate": float(intervention_cycle.sign_flip_rate),
+            "baseline_polarity_coherence_score": float(baseline_cycle.polarity_coherence_score),
+            "intervention_polarity_coherence_score": float(intervention_cycle.polarity_coherence_score),
             "baseline_supervisory_confusion_score": float(baseline_cycle.mean_supervisory_confusion),
             "intervention_supervisory_confusion_score": float(intervention_cycle.mean_supervisory_confusion),
             "baseline_supervisory_forgetting_score": float(baseline_cycle.mean_supervisory_forgetting),
@@ -375,7 +396,7 @@ class FlowGraphRAG:
     ) -> list[dict[str, float]]:
         if not target:
             return []
-        ranked = sorted(impact_by_actant.items(), key=lambda item: item[1], reverse=True)
+        ranked = sorted(impact_by_actant.items(), key=lambda item: abs(item[1]), reverse=True)
         candidates = [target] + [node for node, _ in ranked if node != target][:2]
         history: list[dict[str, float]] = []
         for node in candidates:
@@ -385,18 +406,38 @@ class FlowGraphRAG:
 
     def _shock_vector(self, perturbation: Perturbation) -> dict[str, float]:
         magnitude = max(0.0, min(2.0, perturbation.intensity))
+        polarity = self._shock_polarity(perturbation)
+        signed = magnitude * polarity
         return {
-            "social_entropy": 0.1 * magnitude,
-            "temporal_regularity": -0.12 * magnitude,
-            "spatial_range": 0.05 * magnitude,
-            "schedule_density": 0.18 * magnitude,
-            "network_centrality": 0.08 * magnitude,
-            "transition_speed": 0.22 * magnitude,
+            "social_entropy": 0.1 * signed,
+            "temporal_regularity": -0.12 * signed,
+            "spatial_range": 0.05 * signed,
+            "schedule_density": 0.18 * signed,
+            "network_centrality": 0.08 * signed,
+            "transition_speed": 0.22 * signed,
         }
 
     def _counter_shock_vector(self, perturbation: Perturbation) -> dict[str, float]:
         base = self._shock_vector(perturbation)
         return {key: -0.7 * value for key, value in base.items()}
+
+    def _shock_polarity(self, perturbation: Perturbation) -> float:
+        weights = perturbation.metadata.get("target_weights", {})
+        if not perturbation.targets:
+            return 1.0
+        vals: list[float] = []
+        for node in perturbation.targets:
+            w = 1.0
+            if isinstance(weights, dict):
+                try:
+                    w = float(weights.get(node, 1.0))
+                except (TypeError, ValueError):
+                    w = 1.0
+            vals.append(w)
+        if not vals:
+            return 1.0
+        mean_w = sum(vals) / len(vals)
+        return max(-1.0, min(1.0, mean_w))
 
     def _dominant_transition_prob(self, matrix: dict[str, dict[str, float]]) -> float:
         best = 0.0
@@ -450,6 +491,9 @@ class FlowGraphRAG:
         cluster_objectives: list[float] = []
         cross_scale_consistency: list[float] = []
         micro_refinement_gain: list[float] = []
+        cluster_ann_cache_hits: list[float] = []
+        cluster_active_contexts: list[float] = []
+        cluster_evicted_contexts: list[float] = []
         supervisory_confusions: list[float] = []
         supervisory_forgettings: list[float] = []
         converged = False
@@ -472,11 +516,13 @@ class FlowGraphRAG:
             distance_series.append(final_distance)
 
             phase_signal = float(prev_phase_context.get("critical_transition_score", 0.0))
+            cluster_context_id = self._cluster_context_id(current_graph, perturbation)
             cluster_plan = self.cluster_controller.plan(
                 current_graph,
                 propagation.impact_by_actant,
                 final_state,
                 phase_signal=phase_signal,
+                context_id=cluster_context_id,
             )
             control = self.controller.compute(
                 current_graph,
@@ -496,6 +542,8 @@ class FlowGraphRAG:
                 "coherence_break_score": phase_context.coherence_break_score,
                 "critical_slowing_score": phase_context.critical_slowing_score,
                 "hysteresis_proxy_score": phase_context.hysteresis_proxy_score,
+                "sign_flip_rate": phase_context.sign_flip_rate,
+                "polarity_coherence_score": phase_context.polarity_coherence_score,
             }
             supervisory_metrics, supervisory_state = self.supervisory.analyze(
                 current_graph,
@@ -515,6 +563,8 @@ class FlowGraphRAG:
                 supervisory_context={
                     "confusion_score": supervisory_metrics.confusion_score,
                     "forgetting_score": supervisory_metrics.forgetting_score,
+                    "sign_flip_rate": phase_context.sign_flip_rate,
+                    "polarity_coherence_score": phase_context.polarity_coherence_score,
                 },
             )
             prev_phase_context = phase_context_map
@@ -552,6 +602,9 @@ class FlowGraphRAG:
             cluster_objectives.append(cluster_plan.cluster_objective)
             cross_scale_consistency.append(cluster_plan.cross_scale_consistency)
             micro_refinement_gain.append(max(0.0, cluster_plan.cluster_objective - control.objective_score))
+            cluster_ann_cache_hits.append(cluster_plan.ann_cache_hit)
+            cluster_active_contexts.append(float(cluster_plan.active_context_count))
+            cluster_evicted_contexts.append(float(cluster_plan.evicted_context_count))
             supervisory_confusions.append(adjustment.supervisory_confusion_score)
             supervisory_forgettings.append(adjustment.supervisory_forgetting_score)
             current_graph = adjustment.adjusted_graph
@@ -615,6 +668,15 @@ class FlowGraphRAG:
         )
         mean_refinement_gain = (
             sum(micro_refinement_gain) / len(micro_refinement_gain) if micro_refinement_gain else 0.0
+        )
+        mean_cluster_ann_cache_hit = (
+            sum(cluster_ann_cache_hits) / len(cluster_ann_cache_hits) if cluster_ann_cache_hits else 0.0
+        )
+        mean_cluster_active_contexts = (
+            sum(cluster_active_contexts) / len(cluster_active_contexts) if cluster_active_contexts else 0.0
+        )
+        mean_cluster_evicted_contexts = (
+            sum(cluster_evicted_contexts) / len(cluster_evicted_contexts) if cluster_evicted_contexts else 0.0
         )
         mean_supervisory_confusion = (
             sum(supervisory_confusions) / len(supervisory_confusions) if supervisory_confusions else 0.0
@@ -682,10 +744,15 @@ class FlowGraphRAG:
             coherence_break_score=phase.coherence_break_score,
             critical_slowing_score=phase.critical_slowing_score,
             hysteresis_proxy_score=phase.hysteresis_proxy_score,
+            sign_flip_rate=phase.sign_flip_rate,
+            polarity_coherence_score=phase.polarity_coherence_score,
             dominant_regime=phase.dominant_regime,
             mean_cluster_objective=mean_cluster_obj,
             mean_cross_scale_consistency=mean_consistency,
             mean_micro_refinement_gain=mean_refinement_gain,
+            mean_cluster_ann_cache_hit=mean_cluster_ann_cache_hit,
+            mean_cluster_active_contexts=mean_cluster_active_contexts,
+            mean_cluster_evicted_contexts=mean_cluster_evicted_contexts,
             mean_supervisory_confusion=mean_supervisory_confusion,
             mean_supervisory_forgetting=mean_supervisory_forgetting,
         )
@@ -710,3 +777,14 @@ class FlowGraphRAG:
         recent = scores[-(window + 1) :]
         diffs = [abs(recent[i + 1] - recent[i]) for i in range(len(recent) - 1)]
         return all(d <= tol for d in diffs)
+
+    def _distance_stabilized(self, values: list[float], threshold: float = 0.02) -> bool:
+        if len(values) < 2:
+            return False
+        return abs(values[-1] - values[-2]) < threshold
+
+    def _cluster_context_id(self, graph: LayeredGraph, perturbation: Perturbation) -> str:
+        raw = str(perturbation.metadata.get("stream_id", "")).strip()
+        if raw:
+            return raw
+        return f"{graph.graph_id}:{perturbation.kind}"

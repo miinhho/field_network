@@ -23,6 +23,9 @@ class CalibrationRow:
     avg_longrun_churn: float
     avg_longrun_retention: float
     avg_longrun_diversity: float
+    avg_cluster_ann_cache_hit_rate: float
+    avg_cluster_active_contexts: float
+    avg_cluster_evicted_contexts: float
 
 
 @dataclass(slots=True)
@@ -175,6 +178,9 @@ def run_calibration_with_summary(
         sum_longrun_churn = 0.0
         sum_longrun_retention = 0.0
         sum_longrun_diversity = 0.0
+        sum_cluster_ann_cache_hit_rate = 0.0
+        sum_cluster_active_contexts = 0.0
+        sum_cluster_evicted_contexts = 0.0
 
         for graph, perturbation in scenarios:
             out = rag.run(graph, Query(text="predict calibration scenario"), perturbation=perturbation)
@@ -186,6 +192,9 @@ def run_calibration_with_summary(
             sum_conv += float(m.get("converged", 0.0))
             sum_confusion += float(m.get("supervisory_confusion_score", 0.0))
             sum_forgetting += float(m.get("supervisory_forgetting_score", 0.0))
+            sum_cluster_ann_cache_hit_rate += float(m.get("cluster_ann_cache_hit_rate", 0.0))
+            sum_cluster_active_contexts += float(m.get("cluster_active_contexts", 0.0))
+            sum_cluster_evicted_contexts += float(m.get("cluster_evicted_contexts", 0.0))
             probe = _longrun_probe(rag=rag, graph=graph, perturbation=perturbation, steps=5)
             sum_longrun_churn += probe["avg_longrun_churn"]
             sum_longrun_retention += probe["avg_longrun_retention"]
@@ -202,6 +211,9 @@ def run_calibration_with_summary(
         avg_longrun_churn = sum_longrun_churn / n
         avg_longrun_retention = sum_longrun_retention / n
         avg_longrun_diversity = sum_longrun_diversity / n
+        avg_cluster_ann_cache_hit_rate = sum_cluster_ann_cache_hit_rate / n
+        avg_cluster_active_contexts = sum_cluster_active_contexts / n
+        avg_cluster_evicted_contexts = sum_cluster_evicted_contexts / n
 
         # Lower is better; reward convergence modestly.
         score = (
@@ -230,6 +242,9 @@ def run_calibration_with_summary(
                 avg_longrun_churn=round(avg_longrun_churn, 6),
                 avg_longrun_retention=round(avg_longrun_retention, 6),
                 avg_longrun_diversity=round(avg_longrun_diversity, 6),
+                avg_cluster_ann_cache_hit_rate=round(avg_cluster_ann_cache_hit_rate, 6),
+                avg_cluster_active_contexts=round(avg_cluster_active_contexts, 6),
+                avg_cluster_evicted_contexts=round(avg_cluster_evicted_contexts, 6),
             )
         )
 

@@ -7,11 +7,19 @@ name = "ffrag"
 version = "0.1.0"
 description = "PoC Flow Graph RAG library"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.11"
 authors = [{ name = "field_network" }]
 dependencies = [
-    "numpy>=1.26",
+    "numpy>=1.26,<2.0",
     "networkx>=3.3",
+]
+
+[project.optional-dependencies]
+ann = [
+    "faiss-cpu>=1.8",
+]
+ann-gpu = [
+    "faiss-gpu>=1.7",
 ]
 
 [dependency-groups]

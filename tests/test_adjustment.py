@@ -1,4 +1,5 @@
 from datetime import datetime
+import math
 from pathlib import Path
 import sys
 import unittest
@@ -156,6 +157,35 @@ class AdjustmentTests(unittest.TestCase):
         )
         self.assertLessEqual(slowed.selected_edit_budget, base.selected_edit_budget)
 
+    def test_phase_sign_instability_reduces_budget_and_scale(self) -> None:
+        adjuster = DynamicGraphAdjuster()
+        stable = adjuster.adjust(
+            self._dense_graph(),
+            impact_by_actant={"a": 1.0, "b": 0.9, "c": 0.8, "d": 0.7, "e": 0.6},
+            state={"transition_speed": 0.55, "temporal_regularity": 0.35, "schedule_density": 3.4},
+            phase_context={
+                "critical_transition_score": 0.45,
+                "early_warning_score": 0.35,
+                "coherence_break_score": 0.25,
+                "sign_flip_rate": 0.05,
+                "polarity_coherence_score": 0.95,
+            },
+        )
+        unstable = adjuster.adjust(
+            self._dense_graph(),
+            impact_by_actant={"a": 1.0, "b": 0.9, "c": 0.8, "d": 0.7, "e": 0.6},
+            state={"transition_speed": 0.55, "temporal_regularity": 0.35, "schedule_density": 3.4},
+            phase_context={
+                "critical_transition_score": 0.45,
+                "early_warning_score": 0.35,
+                "coherence_break_score": 0.25,
+                "sign_flip_rate": 0.9,
+                "polarity_coherence_score": 0.1,
+            },
+        )
+        self.assertLessEqual(unstable.selected_adjustment_scale, stable.selected_adjustment_scale + 1e-6)
+        self.assertLessEqual(unstable.selected_edit_budget, stable.selected_edit_budget)
+
     def test_bridge_edge_drop_is_blocked_by_safety_constraint(self) -> None:
         g = LayeredGraph(graph_id="ga_bridge", schema_version="0.1")
         g.actants = {
@@ -276,6 +306,85 @@ class AdjustmentTests(unittest.TestCase):
             base.supervisory_policy_trace["eta_down"],
         )
         self.assertLessEqual(protected.applied_drop_edges, base.applied_drop_edges)
+
+    def test_supervisory_phase_instability_reduces_policy_aggressiveness(self) -> None:
+        adjuster = DynamicGraphAdjuster(max_structural_edits=2, apply_structural_edits=False)
+        g = self._dense_graph()
+        impacts = {"a": 1.0, "b": 0.9, "c": 0.8, "d": 0.7, "e": 0.6}
+        state = {"transition_speed": 0.55, "temporal_regularity": 0.35, "schedule_density": 3.8}
+
+        stable = adjuster.adjust(
+            g,
+            impact_by_actant=impacts,
+            state=state,
+            supervisory_context={
+                "confusion_score": 0.2,
+                "forgetting_score": 0.2,
+                "sign_flip_rate": 0.05,
+                "polarity_coherence_score": 0.95,
+            },
+        )
+        unstable = adjuster.adjust(
+            g,
+            impact_by_actant=impacts,
+            state=state,
+            supervisory_context={
+                "confusion_score": 0.2,
+                "forgetting_score": 0.2,
+                "sign_flip_rate": 0.9,
+                "polarity_coherence_score": 0.1,
+            },
+        )
+        self.assertLessEqual(
+            unstable.supervisory_policy_trace["budget_multiplier"],
+            stable.supervisory_policy_trace["budget_multiplier"] + 1e-9,
+        )
+        self.assertLessEqual(
+            unstable.supervisory_policy_trace["new_edge_bias"],
+            stable.supervisory_policy_trace["new_edge_bias"] + 1e-9,
+        )
+        self.assertGreaterEqual(
+            unstable.supervisory_policy_trace["theta_on"],
+            stable.supervisory_policy_trace["theta_on"] - 1e-9,
+        )
+
+    def test_pair_stability_is_bounded_for_signed_inputs(self) -> None:
+        adjuster = DynamicGraphAdjuster()
+        self.assertGreaterEqual(adjuster._pair_stability(1.0, -1.0), 0.0)
+        self.assertLessEqual(adjuster._pair_stability(1.0, -1.0), 1.0)
+        self.assertAlmostEqual(adjuster._pair_stability(1.0, 1.0), 1.0, places=6)
+
+    def test_adjust_handles_signed_impacts_without_instability(self) -> None:
+        adjuster = DynamicGraphAdjuster()
+        out = adjuster.adjust(
+            self._dense_graph(),
+            impact_by_actant={"a": 1.2, "b": -1.1, "c": 0.7, "d": -0.5, "e": 0.2},
+            state={"transition_speed": 0.6, "temporal_regularity": 0.25, "schedule_density": 4.5},
+        )
+        self.assertTrue(math.isfinite(out.adjustment_objective_score))
+        self.assertGreaterEqual(len(out.suggested_new_edges), 0)
+        self.assertLessEqual(len(out.suggested_new_edges), 6)
+
+    def test_edge_pressure_penalizes_sign_mismatch(self) -> None:
+        adjuster = DynamicGraphAdjuster()
+        same = adjuster._edge_pressure(1.0, 0.8)
+        mixed = adjuster._edge_pressure(1.0, -0.8)
+        self.assertGreater(same, mixed)
+
+    def test_drop_suggestion_prefers_sign_mismatch_edges(self) -> None:
+        g = LayeredGraph(graph_id="ga_signed_drop", schema_version="0.1")
+        for node in ["a", "b", "c"]:
+            g.actants[node] = Actant(node, "person", node.upper())
+        g.interactions = [
+            Interaction("e1", datetime(2026, 2, 3, 9), "a", "b", "social", 0.8),
+            Interaction("e2", datetime(2026, 2, 3, 10), "a", "c", "social", 0.8),
+            Interaction("e3", datetime(2026, 2, 3, 11), "b", "c", "social", 0.8),
+        ]
+        adjuster = DynamicGraphAdjuster()
+        impacts = {"a": 1.0, "b": -1.0, "c": 0.9}
+        out = adjuster._suggest_drop_edges(g, impacts, max_edges=1, phase_risk=0.4, density=0.6)
+        self.assertEqual(len(out), 1)
+        self.assertIn(tuple(sorted(out[0])), {("a", "b"), ("b", "c")})
 
 
 if __name__ == "__main__":

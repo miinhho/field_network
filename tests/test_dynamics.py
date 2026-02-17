@@ -8,6 +8,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ffrag.flow.dynamics import FlowFieldDynamics
+import numpy as np
 
 
 class DynamicsTests(unittest.TestCase):
@@ -29,9 +30,9 @@ class DynamicsTests(unittest.TestCase):
         self.assertIn("schedule_density", result.snapshots[-1].state)
         self.assertIn("transition_speed", result.snapshots[-1].velocity)
 
-    def test_viscosity_limits_velocity(self) -> None:
+    def test_effective_mass_limits_velocity(self) -> None:
         dyn = FlowFieldDynamics()
-        low_visc = {
+        low_mass = {
             "social_entropy": 0.2,
             "temporal_regularity": 0.1,
             "spatial_range": 0.2,
@@ -39,15 +40,22 @@ class DynamicsTests(unittest.TestCase):
             "network_centrality": 0.2,
             "transition_speed": 0.1,
         }
-        high_visc = {**low_visc, "temporal_regularity": 1.0, "schedule_density": 10.0}
+        high_mass = {**low_mass, "temporal_regularity": 1.0, "schedule_density": 10.0}
         shock = {"schedule_density": 0.2, "transition_speed": 0.2}
 
-        low = dyn.simulate(initial_state=low_visc, history=[low_visc], shock=shock, steps=1)
-        high = dyn.simulate(initial_state=high_visc, history=[high_visc], shock=shock, steps=1)
+        low = dyn.simulate(initial_state=low_mass, history=[low_mass], shock=shock, steps=1)
+        high = dyn.simulate(initial_state=high_mass, history=[high_mass], shock=shock, steps=1)
 
         low_mag = abs(low.snapshots[0].velocity["schedule_density"])
         high_mag = abs(high.snapshots[0].velocity["schedule_density"])
         self.assertGreater(low_mag, high_mag)
+
+    def test_effective_mass_is_dimensionwise(self) -> None:
+        dyn = FlowFieldDynamics(max_step_norm=0.8)
+        force = np.array([0.05, 1.2, 0.02, 0.03, 0.04, 0.01], dtype=np.float64)
+        mass = dyn._effective_mass(base_mass=1.5, force=force)
+        self.assertEqual(mass.shape[0], force.shape[0])
+        self.assertGreater(mass[1], mass[0])
 
 
 if __name__ == "__main__":

@@ -46,6 +46,10 @@ Flow Graph RAG = GraphRAG + temporal/dynamic simulation layer.
 - Higher-order topological pressure term (4-cycle style loop pressure) included in node control input
 - One-step lookahead objective minimization for control gain selection (`k_div`, `residual_damping`, `k_higher`)
 - Coarse-to-fine multiscale control added: cluster-level planning followed by node-level topological refinement
+- Multiscale clustering policy upgraded from structure-only modularity to hybrid graph partitioning (structural edges + dynamic embedding kNN + temporal inertia links)
+- ANN retrieval backend integrated for hybrid clustering (`FAISS` preferred, exact-cosine fallback), so dynamic-neighbor graph construction now follows retrieval-grade indexing path
+- ANN policy tightened: default behavior is fail-fast on FAISS environment errors (fallback is opt-in only), to surface environment misconfiguration explicitly
+- ANN index lifecycle improved: context-keyed ANN cache reuse added for repeated cluster queries within stable feature regimes
 - Multi-step lookahead objective rollout added for control gain selection (short horizon discounted planning)
 - Simplicial topology approximation integrated (`triangle`/`tetra` cliques) and fed into control as higher-order node pressure
 - Topological tension (participation variance over simplices) integrated as objective penalty term
@@ -117,9 +121,11 @@ This is why we add supervisory/homeostatic constraints rather than pure Hebbian-
 ## Tech Direction (Current)
 
 - Language: Python
+- Runtime baseline: Python 3.10 (for stable `faiss-gpu` wheel compatibility)
 - Environment: `uv` + project-local `.venv`
 - Graph: `networkx` (initial), optional `igraph` later for scale
 - Numeric ops: `numpy` as default for core vector/math operations
+- Numeric compatibility note: `numpy<2.0` pinned while using current `faiss-gpu` wheels
 - Topology/time extensions: optional modules (`gudhi`, `ripser.py`, temporal graph tooling)
 - Storage: pluggable (in-memory first, external stores later)
 
@@ -156,6 +162,12 @@ This is why we add supervisory/homeostatic constraints rather than pure Hebbian-
   - core package keeps generic rule-mapping adapter (`GenericMappingAdapter`, `MappingSpec`) for user-defined relations
   - concrete domain adapters are intended to live outside core (example moved under `examples/adapters/`)
 11. Reporting promotion completed for calibration: row-level long-run guardrail metrics (`avg_longrun_churn/retention/diversity`) and export templates for CSV + Markdown handoff artifacts
+12. Multiscale cluster planner upgraded to hybrid clustering graph: normalized structural weights + node-feature kNN similarity edges + prior-assignment inertia edges
+13. ANN index abstraction added for clustering (`create_cosine_ann_index`): `FAISS` preferred, then exact fallback
+14. Cluster inertia state key upgraded from graph-id-only to explicit context key (`context_id` / stream id), supporting persistent flow impact streams without cross-stream contamination
+15. Context-state lifecycle controls added for clustering memory (forgetting-curve retention with importance/frequency mix + bounded capacity + explicit context clear API)
+16. Cluster-control consistency fix: cluster control graph now aggregates hybrid partition graph edges (not only raw structural edges)
+14. Implementation hygiene pass completed: UTC timestamp consistency fix in adjuster edge insertion path, and duplicate predict stabilization logic centralized
 
 ### Still Missing for Target Architecture
 
@@ -164,6 +176,7 @@ This is why we add supervisory/homeostatic constraints rather than pure Hebbian-
 3. Candidate policy upgrade for large graphs (ANN or hybrid retrieval)
 4. Long-horizon collapse/fragmentation validation protocol
 5. Production-grade adapter coverage beyond initial adapters (schema hardening, richer domain mappings, ingestion contracts)
+6. ANN quality calibration for dynamic neighbor graph (candidate recall/precision and cluster stability tuning), now that `FAISS` path exists
 
 ### Next Session Checklist
 
@@ -213,3 +226,25 @@ This is why we add supervisory/homeostatic constraints rather than pure Hebbian-
 - 2026-02-15: Reworked adapters into SDK-style package (`BaseAdapter`, registry, contract validator) to separate domain semantics from core engine.
 - 2026-02-15: Kept core adapter layer SDK-focused; moved concrete calendar adapter out of core into `examples/` and retained generic mapping adapter in core.
 - 2026-02-15: Added calibration reporting templates and long-run guardrail columns to calibration outputs (`rows.csv`, `summary.csv`, markdown report).
+- 2026-02-17: Reframed multiscale clustering as control-oriented hybrid partitioning and implemented first pass (structure + dynamic kNN + temporal inertia) in `ClusterFlowController`.
+- 2026-02-17: Replaced hard dynamic-kNN cutoff behavior with neural-inspired soft pattern-separation policy (anchor-prototype large-graph candidate routing + mutual-kNN + lateral-inhibition-style separation gate).
+- 2026-02-17: Integrated real ANN backend for clustering (`FAISS` optional + exact fallback), added ANN index tests, and completed implementation audit refactors (UTC timestamp consistency + predict stabilization dedup).
+- 2026-02-17: Consolidated ANN backend order to `FAISS -> exact` and removed `hnswlib` path to simplify dependency/ops surface.
+- 2026-02-17: Switched project runtime baseline to Python 3.10 and pinned `numpy<2.0` to resolve `faiss-gpu` ABI compatibility.
+- 2026-02-17: Updated ANN creation policy to strict FAISS fail-fast by default and wired cluster inertia memory to explicit `context_id` (stream-aware state continuity).
+- 2026-02-17: Added context-keyed ANN cache reuse, bounded context-state LRU lifecycle, and hybrid-edge-aligned cluster control graph construction; dynamics mass scaling refined to per-feature effective mass.
+- 2026-02-17: Replaced simple context LRU with forgetting-curve eviction policy (half-life decay + frequency + importance override) for stream-aware long-run memory management.
+- 2026-02-17: Promoted cluster-memory observability into calibration reporting outputs (`avg_cluster_ann_cache_hit_rate`, `avg_cluster_active_contexts`, `avg_cluster_evicted_contexts`) for ANN/context retention tuning loops.
+- 2026-02-17: Refined forgetting-curve lifecycle to include retention-floor expiration, so stale contexts can be evicted even without capacity pressure.
+- 2026-02-17: Improved cluster-impact aggregation to reduce sign-cancellation loss (direction/magnitude decomposition with coherence-aware magnitude floor), strengthening coarse control signal fidelity.
+- 2026-02-17: Updated coarse projection to preserve signed cluster-control impact, reducing information loss before micro-scale topological refinement.
+- 2026-02-17: Updated node-level topological controller projection to preserve signed controlled impact, keeping coarse-to-fine signal semantics consistent.
+- 2026-02-17: Replaced cross-scale consistency with a mixed criterion (sign-consistency + magnitude-stability) to better reflect signed dynamics coherence under clustered control.
+- 2026-02-17: Added signed-flow long-run guardrail regression coverage (mean-centered signed impact stream) to validate stability/churn/retention under signed projection policy.
+- 2026-02-17: Hardened adjuster rewiring scoring for signed impacts: candidate ranking now uses impact magnitude and pair-stability is signed-safe/bounded, preventing instability from sign-mixed inputs.
+- 2026-02-17: Refined adjuster edge-update and drop-edge policy for signed dynamics: edge pressure now includes sign-alignment term, low-pressure damping uses absolute pressure, and drop scoring combines magnitude support with sign-mismatch penalty.
+- 2026-02-17: Extended core `FlowSimulator` with signed perturbation seeding (`target_weights`) and edge polarity propagation (`metadata.polarity`), plus signed-safe rewiring candidate filtering.
+- 2026-02-17: Propagated signed perturbation semantics into pipeline/simulator shock construction (`target_weights` -> shock polarity) and switched core history-state candidate ranking to absolute impact magnitude.
+- 2026-02-17: Extended `PhaseTransitionAnalyzer` with signed-dynamics indicators (`sign_flip_rate`, `polarity_coherence_score`) and wired them into phase risk scoring plus pipeline/intervention metrics outputs.
+- 2026-02-17: Integrated signed phase indicators into adjuster risk policy (`DynamicGraphAdjuster._phase_risk`) so high sign-flip / low polarity-coherence states directly reduce structural adjustment aggressiveness.
+- 2026-02-17: Integrated signed phase indicators into supervisory policy modulation (`_supervisory_policy`) and pipeline handoff, so sign-instability directly suppresses adjustment budget/new-edge bias and increases conservative hysteresis behavior.

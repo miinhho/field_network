@@ -68,6 +68,11 @@ class TopologicalControlTests(unittest.TestCase):
         )
         self.assertLessEqual(high_risk.gain_k_div, low_risk.gain_k_div + 1e-6)
 
+    def test_signed_projection_preserves_negative_value(self) -> None:
+        controller = TopologicalFlowController()
+        v = controller._project_controlled_impact(base_impact=0.1, delta=-0.9)
+        self.assertLess(v, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

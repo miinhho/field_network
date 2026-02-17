@@ -114,11 +114,13 @@ class DynamicGraphSimulator:
             distance_series.append(final_distance)
 
             phase_signal = float(prev_phase_context.get("critical_transition_score", 0.0))
+            cluster_context_id = self._cluster_context_id(current_graph, perturbation)
             cluster_plan = self.cluster_controller.plan(
                 current_graph,
                 prop.impact_by_actant,
                 final_state,
                 phase_signal=phase_signal,
+                context_id=cluster_context_id,
             )
             control = self.controller.compute(
                 current_graph,
@@ -288,7 +290,7 @@ class DynamicGraphSimulator:
     ) -> list[dict[str, float]]:
         if not target:
             return []
-        ranked = sorted(impact_by_actant.items(), key=lambda x: x[1], reverse=True)
+        ranked = sorted(impact_by_actant.items(), key=lambda x: abs(x[1]), reverse=True)
         candidates = [target] + [node for node, _ in ranked if node != target][:2]
         out: list[dict[str, float]] = []
         for node in candidates:
@@ -298,14 +300,40 @@ class DynamicGraphSimulator:
 
     def _shock_vector(self, perturbation: Perturbation) -> dict[str, float]:
         magnitude = max(0.0, min(2.0, perturbation.intensity))
+        polarity = self._shock_polarity(perturbation)
+        signed = magnitude * polarity
         return {
-            "social_entropy": 0.1 * magnitude,
-            "temporal_regularity": -0.12 * magnitude,
-            "spatial_range": 0.05 * magnitude,
-            "schedule_density": 0.18 * magnitude,
-            "network_centrality": 0.08 * magnitude,
-            "transition_speed": 0.22 * magnitude,
+            "social_entropy": 0.1 * signed,
+            "temporal_regularity": -0.12 * signed,
+            "spatial_range": 0.05 * signed,
+            "schedule_density": 0.18 * signed,
+            "network_centrality": 0.08 * signed,
+            "transition_speed": 0.22 * signed,
         }
+
+    def _shock_polarity(self, perturbation: Perturbation) -> float:
+        weights = perturbation.metadata.get("target_weights", {})
+        if not perturbation.targets:
+            return 1.0
+        vals: list[float] = []
+        for node in perturbation.targets:
+            w = 1.0
+            if isinstance(weights, dict):
+                try:
+                    w = float(weights.get(node, 1.0))
+                except (TypeError, ValueError):
+                    w = 1.0
+            vals.append(w)
+        if not vals:
+            return 1.0
+        mean_w = sum(vals) / len(vals)
+        return max(-1.0, min(1.0, mean_w))
+
+    def _cluster_context_id(self, graph: LayeredGraph, perturbation: Perturbation) -> str:
+        raw = str(perturbation.metadata.get("stream_id", "")).strip()
+        if raw:
+            return raw
+        return f"{graph.graph_id}:simulation"
 
     def _topk(self, values: dict[str, float], k: int, by_abs: bool = False) -> list[tuple[str, float]]:
         if by_abs:

@@ -126,6 +126,8 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("coherence_break_score", answer.metrics_used)
         self.assertIn("critical_slowing_score", answer.metrics_used)
         self.assertIn("hysteresis_proxy_score", answer.metrics_used)
+        self.assertIn("sign_flip_rate", answer.metrics_used)
+        self.assertIn("polarity_coherence_score", answer.metrics_used)
         self.assertIn("supervisory_confusion_score", answer.metrics_used)
         self.assertIn("supervisory_forgetting_score", answer.metrics_used)
 
@@ -194,6 +196,10 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("intervention_critical_slowing_score", answer.metrics_used)
         self.assertIn("baseline_hysteresis_proxy_score", answer.metrics_used)
         self.assertIn("intervention_hysteresis_proxy_score", answer.metrics_used)
+        self.assertIn("baseline_sign_flip_rate", answer.metrics_used)
+        self.assertIn("intervention_sign_flip_rate", answer.metrics_used)
+        self.assertIn("baseline_polarity_coherence_score", answer.metrics_used)
+        self.assertIn("intervention_polarity_coherence_score", answer.metrics_used)
         self.assertIn("baseline_supervisory_confusion_score", answer.metrics_used)
         self.assertIn("intervention_supervisory_confusion_score", answer.metrics_used)
         self.assertIn("baseline_supervisory_forgetting_score", answer.metrics_used)
@@ -202,6 +208,28 @@ class PipelineTests(unittest.TestCase):
     def test_guardrail_blocks_subjective_inference(self) -> None:
         answer = self.rag.run(self.graph, Query(text="describe"))
         self.assertFalse(answer.blocked_by_guardrail)
+
+    def test_shock_vector_reflects_signed_target_weights(self) -> None:
+        pos = Perturbation(
+            perturbation_id="p-pos",
+            timestamp=datetime(2026, 2, 2, 10, 0, 0),
+            targets=["alice"],
+            intensity=1.0,
+            metadata={"target_weights": {"alice": 1.0}},
+        )
+        neg = Perturbation(
+            perturbation_id="p-neg",
+            timestamp=datetime(2026, 2, 2, 10, 5, 0),
+            targets=["alice"],
+            intensity=1.0,
+            metadata={"target_weights": {"alice": -1.0}},
+        )
+        pos_shock = self.rag._shock_vector(pos)
+        neg_shock = self.rag._shock_vector(neg)
+        self.assertGreater(pos_shock["transition_speed"], 0.0)
+        self.assertLess(neg_shock["transition_speed"], 0.0)
+        self.assertGreater(pos_shock["social_entropy"], 0.0)
+        self.assertLess(neg_shock["social_entropy"], 0.0)
 
 
 if __name__ == "__main__":

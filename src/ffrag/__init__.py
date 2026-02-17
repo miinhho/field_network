@@ -14,6 +14,13 @@ from .pipeline import FlowGraphRAG
 from .calibration import CalibrationRow, run_calibration, candidate_configs
 from .dynamic_simulator import DynamicGraphSimulator, SimulationFrame, SimulationTrace, EdgeDelta
 from .reporting import calibration_rows_csv, calibration_summary_csv, calibration_markdown_report
+from .ann_index import (
+    AnnQueryHit,
+    BaseAnnIndex,
+    ExactCosineIndex,
+    FaissCosineIndex,
+    create_cosine_ann_index,
+)
 from .adapters import (
     AdapterBuildResult,
     BaseAdapter,
@@ -67,6 +74,11 @@ __all__ = [
     "calibration_rows_csv",
     "calibration_summary_csv",
     "calibration_markdown_report",
+    "AnnQueryHit",
+    "BaseAnnIndex",
+    "ExactCosineIndex",
+    "FaissCosineIndex",
+    "create_cosine_ann_index",
     "BaseAdapter",
     "AdapterBuildResult",
     "MappingSpec",

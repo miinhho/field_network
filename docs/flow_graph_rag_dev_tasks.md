@@ -174,6 +174,8 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Higher-order topology signal integrated (`higher_order_pressure`) and upgraded to simplicial approximation (triangle/tetra clique participation)
   - One-step lookahead gain selection for control parameters (`k_div`, `residual_damping`, `k_higher`)
   - Multiscale control path (`ClusterFlowController`): coarse cluster control + micro topological refinement
+  - Multiscale clustering upgraded to hybrid partition graph (structure + dynamic node-feature kNN + temporal inertia links)
+  - ANN index integration for multiscale dynamic-neighbor retrieval (`FAISS` preferred backend, exact-cosine fallback)
   - Multi-step lookahead objective rollout for gain search and stricter cross-scale convergence gate
   - Predict/intervene integration with dynamics snapshots
   - Transition/resilience analysis (`transition_matrix`, `recovery_rate`, `hysteresis_index`)
@@ -210,6 +212,7 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Core completion/readiness checklist and automated readiness tests added
   - Analyzer configuration object for domain tuning (`FlowAnalyzerConfig`: thresholds, weights, lag)
   - Unit tests for dynamics and flow analysis
+  - Flow dynamics simplification: effective-mass update now replaces separate viscosity/adaptive-dt controls in the core state update
 - Missing:
   - Causal validation against exogenous signals (current trigger confidence is rule-based)
   - Basin boundary calibration against domain data (current boundary uses centroid + std radius)
@@ -222,6 +225,9 @@ It defines the implementation task breakdown, ordering, and deliverables for the
   - Real GraphRAG generation path (current baseline remains retrieval-heavy)
   - Supervisory control loop for confusion/forgetting stabilization
   - Adaptive plasticity/hysteresis calibration (`theta_on/off`, dwell, eta, fatigue/recovery) against long-run behaviors
+  - ANN parameter calibration (`ef_search`, candidate_k, mutual-kNN policy) for cluster quality/latency trade-off by graph regime
+  - Clustering quality observability metrics (NMI step-stability, cut/conductance) for control-driven partition validation
+  - Expose selected ANN backend and neighbor quality diagnostics in reporting artifacts
 
 ## Next Session Checklist (Action Order)
 
@@ -318,6 +324,15 @@ Status (2026-02-15):
 - 2026-02-15: Added one-step lookahead objective search for control gain selection.
 - 2026-02-15: Added multiscale coarse-to-fine control (`ClusterFlowController`) and cross-scale metrics.
 - 2026-02-15: Upgraded to multi-step discounted lookahead and tightened convergence with cross-scale consistency condition.
+- 2026-02-17: Upgraded multiscale clustering from structure-only modularity to hybrid graph partitioning (structural + dynamic kNN + temporal inertia) and added regression tests for structure-sparse behavior.
+- 2026-02-17: Simplified core dynamics update to effective-mass formulation (replacing separate viscosity/adaptive-dt mechanics) with full test-suite pass.
+- 2026-02-17: Added ANN index abstraction/module and connected multiscale clustering to real ANN backend path (`FAISS` optional, exact fallback), plus new ANN unit tests.
+- 2026-02-17: Updated ANN backend priority for clustering to `FAISS -> exact`, dropped `hnswlib`, and expanded optional dependency set to include `faiss-cpu`/`faiss-gpu`.
+- 2026-02-17: Migrated project runtime to Python 3.10 and pinned `numpy<2.0` for `faiss-gpu` binary compatibility; validated with full test-suite pass.
+- 2026-02-17: Changed ANN behavior to strict FAISS fail-fast default (fallback opt-in), and upgraded multiscale inertia-state keying to `context_id` for stream-consistent clustering memory.
+- 2026-02-17: Completed targeted architecture review fixes: ANN cache reuse by context, cluster-control graph alignment to hybrid partition edges, bounded context-state lifecycle (LRU), strict FAISS policy tests, and per-feature effective-mass dynamics refinement.
+- 2026-02-17: Upgraded context lifecycle from bounded LRU to forgetting-curve policy (half-life decay + frequency/importance mix) with importance override API and regression tests.
+- 2026-02-17: Code audit refactor pass: fixed UTC-naive timestamp emission in adjuster and removed duplicated stabilization check logic in predict metrics path.
 - 2026-02-15: Added simplicial topology module and wired `simplex_density`/`topological_tension` into control objective and pipeline metrics.
 - 2026-02-15: Added `PhaseTransitionAnalyzer` and exposed critical/early-warning/regime-switch metrics in predict/intervene outputs.
 - 2026-02-15: Added phase-aware closed-loop safety clamp + conservative adjustment policy and regime persistence metric.
@@ -349,3 +364,17 @@ Status (2026-02-15):
 - 2026-02-15: Replaced ad-hoc adapter approach with SDK-style adapter package (base/registry/validation) and added generic rule-mapping adapter for user-defined domain schemas.
 - 2026-02-15: Removed concrete calendar adapter from core package and kept domain-specific adapter implementations in examples/external path to preserve SDK-only core boundaries.
 - 2026-02-15: Completed reporting promotion with long-run guardrail calibration columns and CSV/Markdown handoff templates (`ffrag.calibration_cli --rows-out/--summary-out/--report-md-out`).
+- 2026-02-17: Extended calibration reporting artifacts with cluster-memory observability columns (`avg_cluster_ann_cache_hit_rate`, `avg_cluster_active_contexts`, `avg_cluster_evicted_contexts`) and updated report tests.
+- 2026-02-17: Core lifecycle refinement: added retention-floor based stale-context eviction (independent of max-capacity pressure) with multiscale regression tests.
+- 2026-02-17: Core clustering refinement: replaced simple cluster-impact mean with coherence-aware signed aggregation to avoid excessive signal cancellation in coarse control.
+- 2026-02-17: Core projection refinement: coarse cluster-control projection now preserves signed signal with regression tests.
+- 2026-02-17: Core projection refinement (node controller): topological controlled-impact projection now preserves signed signal with regression tests.
+- 2026-02-17: Core consistency refinement: cross-scale consistency now uses mixed sign-coherence and variance-stability scoring, with dedicated multiscale regression tests.
+- 2026-02-17: Long-run guardrail suite extended with signed-impact stress scenario (mean-centered stream) to verify stability after signed-projection policy unification.
+- 2026-02-17: Core adjuster refinement: signed-safe rewiring ranking/stability update applied (`abs-impact` candidate ranking + bounded signed pair stability) with new adjustment tests.
+- 2026-02-17: Core adjuster refinement 2: signed-aware edge pressure and drop scoring integrated (including sign-mismatch penalty), with new adjustment regression tests.
+- 2026-02-17: Core simulator refinement: added signed perturbation seeding and polarity-aware hop propagation in `FlowSimulator`, with dedicated signed-propagation tests.
+- 2026-02-17: Core pipeline/simulator refinement: shock vector now reflects signed target weights, and history-state candidate selection switched to `abs-impact` ranking; added pipeline regression test.
+- 2026-02-17: Core phase-analysis refinement: added sign-flip/coherence features and surfaced them through predict/intervene metrics, with dedicated phase/pipeline regression tests.
+- 2026-02-17: Core adjuster-policy refinement: phase risk now consumes sign-flip/coherence signals and is covered by budget/scale conservativeness regression test.
+- 2026-02-17: Core supervisory-policy refinement: sign-flip/coherence signals now modulate supervisory policy (budget/new-edge bias/theta), with dedicated adjustment regression test.

@@ -7,7 +7,8 @@ def calibration_rows_csv(rows: list[CalibrationRow]) -> str:
     header = (
         "rank,config_id,score,avg_adjustment_objective,avg_critical_transition,avg_coupling_penalty,"
         "avg_applied_edits,avg_converged,avg_supervisory_confusion,avg_supervisory_forgetting,"
-        "avg_longrun_churn,avg_longrun_retention,avg_longrun_diversity"
+        "avg_longrun_churn,avg_longrun_retention,avg_longrun_diversity,"
+        "avg_cluster_ann_cache_hit_rate,avg_cluster_active_contexts,avg_cluster_evicted_contexts"
     )
     lines = [header]
     for i, r in enumerate(rows, start=1):
@@ -15,7 +16,9 @@ def calibration_rows_csv(rows: list[CalibrationRow]) -> str:
             f"{i},{r.config_id},{r.score:.6f},{r.avg_adjustment_objective:.6f},{r.avg_critical_transition:.6f},"
             f"{r.avg_coupling_penalty:.6f},{r.avg_applied_edits:.6f},{r.avg_converged:.6f},"
             f"{r.avg_supervisory_confusion:.6f},{r.avg_supervisory_forgetting:.6f},"
-            f"{r.avg_longrun_churn:.6f},{r.avg_longrun_retention:.6f},{r.avg_longrun_diversity:.6f}"
+            f"{r.avg_longrun_churn:.6f},{r.avg_longrun_retention:.6f},{r.avg_longrun_diversity:.6f},"
+            f"{r.avg_cluster_ann_cache_hit_rate:.6f},{r.avg_cluster_active_contexts:.6f},"
+            f"{r.avg_cluster_evicted_contexts:.6f}"
         )
     return "\n".join(lines) + "\n"
 
@@ -59,14 +62,16 @@ def calibration_markdown_report(rows: list[CalibrationRow], summary: Calibration
     lines.append("")
     lines.append("## Top Candidates")
     lines.append(
-        "| Rank | Config | Score | Obj | Critical | Coupling | Churn(LR) | Retention(LR) | Diversity(LR) |"
+        "| Rank | Config | Score | Obj | Critical | Coupling | Churn(LR) | Retention(LR) | Diversity(LR) | ANN Hit | Ctx Active | Ctx Evicted |"
     )
-    lines.append("|---:|---|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for i, r in enumerate(top, start=1):
         lines.append(
             f"| {i} | `{r.config_id}` | {r.score:.4f} | {r.avg_adjustment_objective:.4f} | "
             f"{r.avg_critical_transition:.4f} | {r.avg_coupling_penalty:.4f} | "
-            f"{r.avg_longrun_churn:.4f} | {r.avg_longrun_retention:.4f} | {r.avg_longrun_diversity:.4f} |"
+            f"{r.avg_longrun_churn:.4f} | {r.avg_longrun_retention:.4f} | {r.avg_longrun_diversity:.4f} | "
+            f"{r.avg_cluster_ann_cache_hit_rate:.4f} | {r.avg_cluster_active_contexts:.2f} | "
+            f"{r.avg_cluster_evicted_contexts:.2f} |"
         )
     lines.append("")
     lines.append("## Notes")

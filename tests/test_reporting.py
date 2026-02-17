@@ -19,9 +19,11 @@ class ReportingTests(unittest.TestCase):
         md = calibration_markdown_report(rows, summary, top_k=3)
 
         self.assertIn("avg_longrun_churn", rows_csv)
+        self.assertIn("avg_cluster_ann_cache_hit_rate", rows_csv)
         self.assertIn("candidate_count", summary_csv)
         self.assertIn("# Calibration Report", md)
         self.assertIn("Top Candidates", md)
+        self.assertIn("Ctx Evicted", md)
 
 
 if __name__ == "__main__":

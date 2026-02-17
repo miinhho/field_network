@@ -111,6 +111,7 @@ class LongRunGuardrailIntegrationTests(unittest.TestCase):
         steps: int,
         intensity_base: float,
         noisy: bool = False,
+        signed_centering: bool = False,
     ) -> dict[str, float]:
         simulator = FlowSimulator()
         state_builder = StateVectorBuilder()
@@ -131,6 +132,8 @@ class LongRunGuardrailIntegrationTests(unittest.TestCase):
         forgetting_series: list[float] = []
         confusion_series: list[float] = []
         critical_series: list[float] = []
+        min_coarse_series: list[float] = []
+        min_controlled_series: list[float] = []
 
         important_nodes = [target]
         important_nodes.extend([n for n in current.actants.keys() if n != target][:2])
@@ -151,6 +154,10 @@ class LongRunGuardrailIntegrationTests(unittest.TestCase):
                 intensity=intensity,
             )
             prop = simulator.propagate(current, p)
+            impact_input = dict(prop.impact_by_actant)
+            if signed_centering and impact_input:
+                mean_impact = sum(impact_input.values()) / len(impact_input)
+                impact_input = {k: float(v - mean_impact) for k, v in impact_input.items()}
             init = state_builder.build(current, step_target).values
             shock = {
                 "social_entropy": 0.1 * intensity,
@@ -166,13 +173,15 @@ class LongRunGuardrailIntegrationTests(unittest.TestCase):
             traj.append(final_state)
             dists.append(final_dist)
 
-            coarse = cluster.plan(current, prop.impact_by_actant, final_state, phase_signal=phase_signal)
+            coarse = cluster.plan(current, impact_input, final_state, phase_signal=phase_signal)
             controlled = control.compute(
                 current,
                 coarse.coarse_controlled_impact,
                 final_state,
                 phase_signal=phase_signal,
             )
+            min_coarse_series.append(min(coarse.coarse_controlled_impact.values(), default=0.0))
+            min_controlled_series.append(min(controlled.controlled_impact.values(), default=0.0))
             phase_out = phase.analyze(
                 trajectory=traj,
                 attractor_distances=dists,
@@ -225,6 +234,8 @@ class LongRunGuardrailIntegrationTests(unittest.TestCase):
             "max_critical": float(max(critical_series) if critical_series else 0.0),
             "retention_floor": retention,
             "diversity_floor": diversity,
+            "min_coarse_impact": float(min(min_coarse_series) if min_coarse_series else 0.0),
+            "min_controlled_impact": float(min(min_controlled_series) if min_controlled_series else 0.0),
         }
 
     def _retention_floor(self, graph: LayeredGraph, important_nodes: list[str]) -> float:
@@ -310,6 +321,22 @@ class LongRunGuardrailIntegrationTests(unittest.TestCase):
         self.assertGreaterEqual(out["diversity_floor"], 0.25)
         self.assertGreaterEqual(out["max_critical"], 0.0)
         self.assertLessEqual(out["max_critical"], 1.0)
+
+    def test_signed_projection_longrun_remains_stable(self) -> None:
+        out = self._run_long_cycle(
+            graph=self._noisy_graph(),
+            target="n0",
+            steps=20,
+            intensity_base=1.0,
+            noisy=True,
+            signed_centering=True,
+        )
+        self.assertLess(out["min_coarse_impact"], 0.0)
+        self.assertLess(out["min_controlled_impact"], 0.0)
+        self.assertLessEqual(out["mean_churn"], 2.2)
+        self.assertLessEqual(out["max_churn"], 3.0)
+        self.assertGreaterEqual(out["retention_floor"], 0.45)
+        self.assertGreaterEqual(out["diversity_floor"], 0.2)
 
 
 if __name__ == "__main__":

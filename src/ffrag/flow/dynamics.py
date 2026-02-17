@@ -21,7 +21,6 @@ class DynamicsSnapshot:
     velocity: dict[str, float]
     attractor_distance: float
     kinetic_energy: float
-    adaptive_dt: float
 
 
 @dataclass(slots=True)
@@ -33,12 +32,13 @@ class DynamicsResult:
 class FlowFieldDynamics:
     """Deterministic flow-field dynamics for PoC.
 
-    x(t+1) = x(t) + dt * (A + R + S + T) * (1 - viscosity)
+    x(t+1) = x(t) + dt * ((A + R + S + T) / M_eff)
 
     - A: pull toward attractor
     - R: push away from repeller
     - S: perturbation shock term
     - T: turbulence term derived from historical drift
+    - M_eff: effective mass combining state inertia and step safety
     """
 
     def __init__(
@@ -67,33 +67,35 @@ class FlowFieldDynamics:
         attractor = self._estimate_attractor(hist)
         repeller = self._estimate_repeller(hist)
         turbulence = self._estimate_turbulence(hist)
-        viscosity = self._estimate_viscosity(initial_state)
+        base_mass = self._estimate_base_mass(initial_state)
+        shock_vec = self._to_vector(shock)
 
         snapshots: list[DynamicsSnapshot] = []
         prev = x.copy()
         stabilized = False
 
         for _ in range(max(1, steps)):
-            velocity_1 = self._velocity(
+            force_1 = self._force(
                 x=x,
                 attractor=attractor,
                 repeller=repeller,
-                shock=self._to_vector(shock),
+                shock=shock_vec,
                 turbulence=turbulence,
-                viscosity=viscosity,
             )
-            adaptive_dt = self._adaptive_dt(dt, velocity_1)
-            midpoint = x + 0.5 * adaptive_dt * velocity_1
-            velocity_2 = self._velocity(
+            mass_1 = self._effective_mass(base_mass, force_1)
+            velocity_1 = force_1 / mass_1
+            midpoint = x + 0.5 * dt * velocity_1
+            force_2 = self._force(
                 x=midpoint,
                 attractor=attractor,
                 repeller=repeller,
-                shock=self._to_vector(shock),
+                shock=shock_vec,
                 turbulence=turbulence,
-                viscosity=viscosity,
             )
+            mass_2 = self._effective_mass(base_mass, force_2)
+            velocity_2 = force_2 / mass_2
             velocity = 0.5 * (velocity_1 + velocity_2)
-            x = x + adaptive_dt * velocity
+            x = x + dt * velocity
             x = np.clip(x, 0.0, 10.0)
 
             dist = float(np.linalg.norm(x - attractor))
@@ -104,7 +106,6 @@ class FlowFieldDynamics:
                     velocity=self._from_vector(velocity),
                     attractor_distance=round(dist, 6),
                     kinetic_energy=round(kinetic, 6),
-                    adaptive_dt=round(adaptive_dt, 6),
                 )
             )
 
@@ -116,27 +117,18 @@ class FlowFieldDynamics:
 
         return DynamicsResult(snapshots=snapshots, stabilized=stabilized)
 
-    def _adaptive_dt(self, base_dt: float, velocity: np.ndarray) -> float:
-        norm = float(np.linalg.norm(velocity))
-        if norm <= 1e-9:
-            return base_dt
-        limit_ratio = self.max_step_norm / norm
-        scale = max(0.2, min(1.0, limit_ratio))
-        return base_dt * scale
-
-    def _velocity(
+    def _force(
         self,
         x: np.ndarray,
         attractor: np.ndarray,
         repeller: np.ndarray,
         shock: np.ndarray,
         turbulence: np.ndarray,
-        viscosity: float,
     ) -> np.ndarray:
         to_attr = self.attractor_strength * (attractor - x)
         from_repeller = self.repeller_strength * (x - repeller)
         turb = self.turbulence_strength * turbulence
-        return (to_attr + from_repeller + shock + turb) * (1.0 - viscosity)
+        return to_attr + from_repeller + shock + turb
 
     def _estimate_attractor(self, hist: list[np.ndarray]) -> np.ndarray:
         return np.mean(np.vstack(hist), axis=0)
@@ -150,11 +142,19 @@ class FlowFieldDynamics:
         deltas = np.diff(np.vstack(hist), axis=0)
         return np.std(deltas, axis=0)
 
-    def _estimate_viscosity(self, state: dict[str, float]) -> float:
+    def _estimate_base_mass(self, state: dict[str, float]) -> float:
         reg = float(state.get("temporal_regularity", 0.0))
         density = float(state.get("schedule_density", 0.0))
         density_norm = min(1.0, density / 10.0)
-        return float(np.clip(0.6 * reg + 0.3 * density_norm, 0.0, 0.85))
+        inertia = float(np.clip(0.6 * reg + 0.3 * density_norm, 0.0, 0.85))
+        return 1.0 + 4.0 * inertia
+
+    def _effective_mass(self, base_mass: float, force: np.ndarray) -> np.ndarray:
+        dim = max(1, force.shape[0])
+        per_dim_limit = self.max_step_norm / (dim ** 0.5)
+        abs_force = np.abs(force)
+        step_mass = np.clip(abs_force / max(1e-9, per_dim_limit), 1.0, 5.0)
+        return np.maximum(1.0, base_mass * step_mass)
 
     def _to_vector(self, values: dict[str, float]) -> np.ndarray:
         return np.array([float(values.get(key, 0.0)) for key in FEATURE_ORDER], dtype=np.float64)

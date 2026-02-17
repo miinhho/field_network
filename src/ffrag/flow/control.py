@@ -75,6 +75,7 @@ class TopologicalFlowController:
         self.objective_step_residual = objective_step_residual
         self.lookahead_horizon = max(1, lookahead_horizon)
         self.lookahead_decay = max(0.2, min(0.95, lookahead_decay))
+        self.controlled_impact_clip = 10.0
         self._k_div_bounds = (0.1, 1.2)
         self._residual_bounds = (0.2, 0.9)
         self._k_higher_bounds = (0.02, 0.6)
@@ -181,7 +182,8 @@ class TopologicalFlowController:
 
         node_control = {node: float(round(u[node_index[node]], 6)) for node in nodes}
         controlled_impact = {
-            node: float(max(0.0, impact_by_actant.get(node, 0.0) + node_control[node])) for node in nodes
+            node: self._project_controlled_impact(float(impact_by_actant.get(node, 0.0)), node_control[node])
+            for node in nodes
         }
 
         residual_ratio = float(np.linalg.norm(residual) / (np.linalg.norm(f) + 1e-9))
@@ -247,6 +249,11 @@ class TopologicalFlowController:
     def _effective_clip(self, phase_signal: float) -> float:
         risk = max(0.0, min(1.0, float(phase_signal)))
         return max(0.35, self.control_clip * (1.0 - 0.35 * risk))
+
+    def _project_controlled_impact(self, base_impact: float, delta: float) -> float:
+        clip = max(0.1, float(self.controlled_impact_clip))
+        value = float(base_impact) + float(delta)
+        return float(np.clip(value, -clip, clip))
 
     def _adapt_gains(
         self,
